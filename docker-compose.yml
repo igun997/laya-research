@@ -1,0 +1,125 @@
+name: laya-research
+
+x-db-credentials: &db-credentials
+  POSTGRES_USER: ${POSTGRES_USER:-laya}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-laya}
+  POSTGRES_DB: ${POSTGRES_DB:-laya}
+
+x-db-url: &db-url
+  DATABASE_URL: postgresql://${POSTGRES_USER:-laya}:${POSTGRES_PASSWORD:-laya}@db:5432/${POSTGRES_DB:-laya}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment: *db-credentials
+    command:
+      - postgres
+      - -c
+      - shared_buffers=384MB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=384MB
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - synchronous_commit=off
+      - -c
+      - max_connections=80
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-laya} -d ${POSTGRES_DB:-laya} -q"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  generator:
+    build: ./generator
+    environment:
+      <<: [*db-url]
+      LAYA_SEED: ${LAYA_SEED:-20260926}
+      LAYA_DAYS: ${LAYA_DAYS:-21}
+      LAYA_STORES: ${LAYA_STORES:-140}
+      LAYA_PRODUCTS: ${LAYA_PRODUCTS:-2400}
+      LAYA_MODE: ${LAYA_MODE:-ensure}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./api
+    environment:
+      <<: *db-url
+      LAYA_TICK_CHANNEL: laya_events
+      LAYA_ORIGINS: "*"
+    depends_on:
+      db:
+        condition: service_healthy
+      generator:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status == 200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  sim:
+    build: ./sim
+    environment:
+      <<: *db-url
+      LAYA_TICK_CHANNEL: laya_events
+      LAYA_TICK_SECONDS: ${LAYA_TICK_SECONDS:-4}
+      LAYA_TICK_ROWS: ${LAYA_TICK_ROWS:-250}
+      LAYA_SEED: ${LAYA_SEED:-20260926}
+      LAYA_REFRESH_SECONDS: ${LAYA_REFRESH_SECONDS:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+      generator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    environment:
+      PUBLIC_API_BASE: /api
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.9-alpine
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${LAYA_HTTP_PORT:-8090}:80"
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  dbdata:

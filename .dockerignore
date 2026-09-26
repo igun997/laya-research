@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+**/node_modules
+**/.svelte-kit
+**/build
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+data
+docs
+README.md

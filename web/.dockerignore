@@ -1,0 +1,13 @@
+# build artefacts and local state never belong in the image context
+node_modules
+.svelte-kit
+build
+dist
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.log
+npm-debug.log*
+.env
+.env.*
