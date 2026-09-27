@@ -7,22 +7,22 @@ export const DASH = '—';
 
 export function fmtInt(value: number | null | undefined): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
-	return Math.round(value).toLocaleString('en-US');
+	return Math.round(value).toLocaleString('id-ID');
 }
 
 /** Compact magnitude: 1.23M / 45.6k / 789. */
 export function fmtCompact(value: number | null | undefined): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
 	const abs = Math.abs(value);
-	if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-	if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-	if (abs >= 1e4) return `${(value / 1e3).toFixed(1)}k`;
-	return value.toLocaleString('en-US', { maximumFractionDigits: abs >= 100 ? 0 : 2 });
+	if (abs >= 1e9) return `${(value / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M`;
+	if (abs >= 1e6) return `${(value / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 2 })} jt`;
+	if (abs >= 1e4) return `${(value / 1e3).toLocaleString('id-ID', { maximumFractionDigits: 1 })} rb`;
+	return value.toLocaleString('id-ID', { maximumFractionDigits: abs >= 100 ? 0 : 2 });
 }
 
 export function fmtMoney(value: number | null | undefined, digits = 2): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
-	return `$${value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+	return `$${value.toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 export function fmtPrice(value: number | null | undefined): string {
@@ -32,7 +32,7 @@ export function fmtPrice(value: number | null | undefined): string {
 /** Fraction (0.312) -> "31.2%". */
 export function fmtPct(value: number | null | undefined, digits = 1): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
-	return `${(value * 100).toFixed(digits)}%`;
+	return `${(value * 100).toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 }
 
 /** Already-scaled percentage (0.02 meaning 2%) -> "+2.0%" with an explicit sign. */
@@ -40,26 +40,26 @@ export function fmtSignedPct(value: number | null | undefined, digits = 1): stri
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
 	const scaled = value * 100;
 	const sign = scaled > 0 ? '+' : '';
-	return `${sign}${scaled.toFixed(digits)}%`;
+	return `${sign}${scaled.toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 }
 
 export function fmtRatio(value: number | null | undefined, digits = 2): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return DASH;
-	return `${value.toFixed(digits)}x`;
+	return `${value.toLocaleString('id-ID', { minimumFractionDigits: digits, maximumFractionDigits: digits })}x`;
 }
 
 export function fmtDay(value: string | null | undefined): string {
 	if (!value) return DASH;
 	const parts = value.slice(0, 10).split('-');
 	if (parts.length !== 3) return value;
-	return `${parts[1]}/${parts[2]}`;
+	return `${parts[2]}/${parts[1]}`;
 }
 
 export function fmtDateTime(value: string | null | undefined): string {
 	if (!value) return DASH;
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
-	return date.toLocaleString('en-US', {
+	return date.toLocaleString('id-ID', {
 		month: 'short',
 		day: '2-digit',
 		hour: '2-digit',
@@ -75,13 +75,13 @@ export function fmtAgo(value: string | null | undefined, now: number = Date.now(
 	const then = new Date(value).getTime();
 	if (Number.isNaN(then)) return value;
 	const seconds = Math.max(0, Math.round((now - then) / 1000));
-	if (seconds < 5) return 'just now';
-	if (seconds < 60) return `${seconds}s ago`;
+	if (seconds < 5) return 'baru saja';
+	if (seconds < 60) return `${seconds} dtk lalu`;
 	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ago`;
+	if (minutes < 60) return `${minutes} mnt lalu`;
 	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h ago`;
-	return `${Math.floor(hours / 24)}d ago`;
+	if (hours < 24) return `${hours} jam lalu`;
+	return `${Math.floor(hours / 24)} hari lalu`;
 }
 
 export function fmtDuration(seconds: number | null | undefined): string {
@@ -109,7 +109,7 @@ export function fmtEvidence(value: unknown): string {
 		if (Number.isInteger(value)) return fmtInt(value);
 		return value.toFixed(Math.abs(value) < 1 ? 3 : 2);
 	}
-	if (typeof value === 'boolean') return value ? 'true' : 'false';
+	if (typeof value === 'boolean') return value ? 'ya' : 'tidak';
 	if (typeof value === 'string') return value;
 	if (Array.isArray(value)) return value.map((entry) => fmtEvidence(entry)).join(', ');
 	return JSON.stringify(value);

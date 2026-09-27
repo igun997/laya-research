@@ -69,13 +69,13 @@
 
 <section class="panel search">
 	<header>
-		<h2>search</h2>
+		<h2>Pencarian terstruktur</h2>
 		<div class="hdr-right">
 			<span class="faint mono tiny">
-				{loading ? 'querying…' : `${fmtInt(total)} matching · page ${fmtInt(rowCount)}`}
+				{loading ? 'mencari…' : `${fmtInt(total)} cocok · halaman ${fmtInt(rowCount)}`}
 			</span>
 			{#if activeCount > 0}
-				<button type="button" class="tiny" onclick={clearAll}>clear ({activeCount})</button>
+				<button type="button" class="tiny" onclick={clearAll}>hapus filter ({activeCount})</button>
 			{/if}
 		</div>
 	</header>
@@ -85,18 +85,18 @@
 			<input
 				class="q"
 				type="search"
-				placeholder="full-text: milk, SKU-000123, Produce…"
+				placeholder="Teks lengkap: milk, SKU-000123, Produce…"
 				bind:value={filters.q}
 				oninput={touch}
-				aria-label="full text search"
+				aria-label="Pencarian teks lengkap"
 			/>
 		</div>
 
 		<div class="row">
 			<label class="field">
-				<span class="label">category</span>
+				<span class="label">kategori</span>
 				<select bind:value={filters.category} onchange={touch}>
-					<option value="">all</option>
+					<option value="">semua</option>
 					{#each categories as item (item.category)}
 						<option value={item.category}>{item.category} ({item.products})</option>
 					{/each}
@@ -104,9 +104,9 @@
 			</label>
 
 			<label class="field">
-				<span class="label">brand</span>
+				<span class="label">merek</span>
 				<select bind:value={filters.brand} onchange={touch}>
-					<option value="">all</option>
+					<option value="">semua</option>
 					{#each brands as brand (brand)}
 						<option value={brand}>{brand}</option>
 					{/each}
@@ -114,11 +114,11 @@
 			</label>
 
 			<label class="field narrow">
-				<span class="label">store id</span>
+				<span class="label">ID toko</span>
 				<input
 					type="number"
 					min="1"
-					placeholder="any"
+					placeholder="semua"
 					bind:value={filters.store_id}
 					oninput={touch}
 				/>
@@ -129,7 +129,7 @@
 			<label class="field">
 				<span class="label">format</span>
 				<select bind:value={filters.format} onchange={touch}>
-					<option value="">all</option>
+					<option value="">semua</option>
 					{#each formats as format (format)}
 						<option value={format}>{format}</option>
 					{/each}
@@ -137,9 +137,9 @@
 			</label>
 
 			<label class="field">
-				<span class="label">region</span>
+				<span class="label">wilayah</span>
 				<select bind:value={filters.region} onchange={touch}>
-					<option value="">all</option>
+					<option value="">semua</option>
 					{#each regions as region (region)}
 						<option value={region}>{region}</option>
 					{/each}
@@ -149,67 +149,67 @@
 			<label class="field">
 				<span class="label">promo</span>
 				<select bind:value={filters.promo} onchange={touch}>
-					<option value="any">any</option>
-					<option value="only">promo only</option>
-					<option value="exclude">no promo</option>
+					<option value="any">semua</option>
+					<option value="only">hanya promo</option>
+					<option value="exclude">tanpa promo</option>
 				</select>
 			</label>
 		</div>
 
 		<div class="row">
 			<label class="field narrow">
-				<span class="label">min price</span>
+				<span class="label">harga minimum</span>
 				<input type="number" step="0.01" min="0" placeholder="0" bind:value={filters.min_price} oninput={touch} />
 			</label>
 			<label class="field narrow">
-				<span class="label">max price</span>
+				<span class="label">harga maksimum</span>
 				<input type="number" step="0.01" min="0" placeholder="∞" bind:value={filters.max_price} oninput={touch} />
 			</label>
 			<label class="field narrow">
-				<span class="label">min units</span>
+				<span class="label">terjual minimum</span>
 				<input type="number" min="0" placeholder="0" bind:value={filters.min_units} oninput={touch} />
 			</label>
 		</div>
 
 		<div class="row">
 			<label class="field">
-				<span class="label">from</span>
+				<span class="label">dari</span>
 				<input type="date" min={dayMin} max={dayMax} bind:value={filters.date_from} onchange={touch} />
 			</label>
 			<label class="field">
-				<span class="label">to</span>
+				<span class="label">sampai</span>
 				<input type="date" min={dayMin} max={dayMax} bind:value={filters.date_to} onchange={touch} />
 			</label>
 			<button
 				type="button"
 				class="tiny"
-				title="clear the date range and search every day in the datasheet (slow)"
+				title="hapus rentang tanggal dan cari di semua hari (lebih lambat)"
 				onclick={() => {
 					filters.date_from = '';
 					filters.date_to = '';
 					touch();
-				}}>all days</button>
+				}}>semua hari</button>
 			<button
 				type="button"
 				class="tiny"
-				title="search only the newest day in the datasheet"
+				title="cari hanya pada hari data terbaru"
 				onclick={() => {
 					filters.date_from = dayMax;
 					filters.date_to = dayMax;
 					touch();
-				}}>newest day</button>
+				}}>hari terbaru</button>
 			<label class="field">
-				<span class="label">sort</span>
+				<span class="label">urutkan</span>
 				<select bind:value={filters.sort} onchange={touch}>
-					<option value="revenue">revenue</option>
-					<option value="units">units</option>
-					<option value="price">price</option>
+					<option value="revenue">pendapatan</option>
+					<option value="units">unit terjual</option>
+					<option value="price">harga</option>
 					<option value="margin">margin</option>
-					<option value="day">day</option>
+					<option value="day">hari</option>
 				</select>
 			</label>
 			<label class="field narrow">
-				<span class="label">page size</span>
+				<span class="label">baris per halaman</span>
 				<select bind:value={filters.limit} onchange={touch}>
 					<option value={25}>25</option>
 					<option value={50}>50</option>
@@ -221,7 +221,7 @@
 		</div>
 
 		{#if filters.date_from && filters.date_to && filters.date_from > filters.date_to}
-			<p class="error tiny">from is after to — swap the range</p>
+			<p class="error tiny">tanggal awal melewati tanggal akhir; ubah rentangnya</p>
 		{/if}
 	</div>
 </section>

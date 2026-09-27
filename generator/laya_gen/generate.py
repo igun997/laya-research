@@ -1,7 +1,7 @@
 """laya-research :: synthetic grocery datasheet generator.
 
 Streams a `(day, store, product)` fact table plus its store/product dimensions
-into Postgres, exactly as `docs/CONTRACT.md` §2 specifies.
+into Postgres, as described in `README.md`.
 
 Row count arithmetic
 --------------------

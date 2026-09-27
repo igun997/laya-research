@@ -38,10 +38,22 @@
 	}: Props = $props();
 
 	const SEVERITIES: Severity[] = ['critical', 'warn', 'info'];
+	const SEVERITY_LABEL: Record<Severity, string> = { critical: 'kritis', warn: 'waspada', info: 'info' };
+	const PATTERN_LABELS: Record<string, string> = {
+		DEMAND_SURGE: 'Lonjakan permintaan',
+		DEMAND_COLLAPSE: 'Penurunan permintaan',
+		PRICE_SPIKE: 'Lonjakan harga',
+		PRICE_CUT_UNANSWERED: 'Potongan harga tanpa respons',
+		MARGIN_SQUEEZE: 'Margin menyusut',
+		STOCKOUT_RISK: 'Risiko kehabisan stok',
+		PROMO_INEFFECTIVE: 'Promo kurang efektif',
+		CATEGORY_DRIFT: 'Perubahan kategori',
+		PRIVATE_LABEL_GAIN: 'Kenaikan merek toko'
+	};
 
 	function labelFor(id: string) {
 		const match = patterns.find((pattern) => pattern.id === id);
-		return match ? match.label : id;
+		return PATTERN_LABELS[id] ?? match?.label ?? id;
 	}
 
 	let expanded = $state<number | null>(null);
@@ -69,29 +81,29 @@
 
 <section class="panel feed">
 	<header>
-		<h2>signals</h2>
+		<h2>Sinyal</h2>
 		<div class="hdr-right">
 			<span class="counts mono tiny">
-				<span class="badge sev-critical">crit {fmtInt(counts.critical)}</span>
-				<span class="badge sev-warn">warn {fmtInt(counts.warn)}</span>
+				<span class="badge sev-critical">kritis {fmtInt(counts.critical)}</span>
+				<span class="badge sev-warn">waspada {fmtInt(counts.warn)}</span>
 				<span class="badge sev-info">info {fmtInt(counts.info)}</span>
-				{#if seenCount > 0}<span class="faint">seen {fmtInt(seenCount)}</span>{/if}
-				<span class="faint">of {fmtInt(total)}</span>
+				{#if seenCount > 0}<span class="faint">dilihat {fmtInt(seenCount)}</span>{/if}
+				<span class="faint">dari {fmtInt(total)}</span>
 			</span>
-			<button type="button" class="tiny" onclick={() => onRefresh?.()} disabled={loading}>refresh</button>
+			<button type="button" class="tiny" onclick={() => onRefresh?.()} disabled={loading}>perbarui</button>
 		</div>
 	</header>
 
 	<div class="filters">
 		<div class="filter-row">
-			<span class="label">pattern</span>
+			<span class="label">pola</span>
 			<div class="chips">
 				<button
 					type="button"
 					class="chip"
 					aria-pressed={activePatterns.length === 0}
 					onclick={() => onTogglePattern?.('')}
-				>all</button>
+				>semua</button>
 				{#each patterns as pattern (pattern.id)}
 					<button
 						type="button"
@@ -104,7 +116,7 @@
 			</div>
 		</div>
 		<div class="filter-row">
-			<span class="label">severity</span>
+			<span class="label">tingkat</span>
 			<div class="chips">
 				{#each SEVERITIES as severity (severity)}
 					<button
@@ -112,7 +124,7 @@
 						class="chip"
 						aria-pressed={activeSeverities.includes(severity)}
 						onclick={() => onToggleSeverity?.(severity)}
-					>{severity}</button>
+					>{SEVERITY_LABEL[severity]}</button>
 				{/each}
 			</div>
 		</div>
@@ -126,7 +138,7 @@
 		{#each signals as signal (signal.signal_id)}
 			<article class="signal {severityClass(signal.severity)}">
 				<div class="head">
-					<span class="badge {severityClass(signal.severity)}">{signal.severity}</span>
+					<span class="badge {severityClass(signal.severity)}">{SEVERITY_LABEL[signal.severity]}</span>
 					<span class="pattern mono">{labelFor(signal.pattern)}</span>
 					<span class="subject" title={signal.subject_label}>{signal.subject_label}</span>
 					<span class="spacer"></span>
@@ -135,10 +147,10 @@
 						type="button"
 						class="tiny ghost"
 						onclick={() => toggleExpand(signal.signal_id)}
-						title="evidence"
+						title="bukti"
 					>{expanded === signal.signal_id ? '−' : '+'}</button>
 					<button type="button" class="tiny ghost" onclick={() => onMarkSeen?.([signal.signal_id])}>
-						mark seen
+						tandai dilihat
 					</button>
 				</div>
 
@@ -146,10 +158,10 @@
 				<p class="action">{signal.action}</p>
 
 				<div class="meta mono tiny faint">
-					<span>day {signal.day}</span>
-					<span>score {fmtRatio(signal.score)}</span>
+					<span>hari {signal.day}</span>
+					<span>skor {fmtRatio(signal.score)}</span>
 					<span>{signal.subject_type} #{signal.subject_id}</span>
-					<span>signal #{signal.signal_id}</span>
+					<span>sinyal #{signal.signal_id}</span>
 				</div>
 
 				{#if expanded === signal.signal_id}
@@ -163,7 +175,7 @@
 			</article>
 		{:else}
 			<p class="empty">
-				{loading ? 'loading signals…' : 'no signals match the current filter'}
+				{loading ? 'memuat sinyal…' : 'tidak ada sinyal yang cocok dengan filter'}
 			</p>
 		{/each}
 	</div>

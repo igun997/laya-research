@@ -1,5 +1,5 @@
 /**
- * TypeScript mirrors of the frozen service contract (docs/CONTRACT.md §1, §4, §5, §6).
+ * TypeScript mirrors of the API shapes described in README.md.
  * Field names are snake_case and MUST match the API responses exactly.
  * No `any` anywhere in this file: unknown-shaped payloads use `Record<string, unknown>`.
  */
@@ -479,4 +479,99 @@ export interface LayaHealthResponse {
 	probe_ms?: number;
 	detail?: unknown;
 	checkpoint_options?: string[];
+}
+
+/* --------------------------------------------------- explore (free text) */
+
+/** The intents the deterministic extractor can retrieve. Anything else is `browse`. */
+export type ExploreIntent =
+	| 'browse'
+	| 'low_inventory'
+	| 'high_sales'
+	| 'low_sales'
+	| 'promo'
+	| 'high_price'
+	| 'low_price';
+
+/**
+ * Where the intent came from, and therefore how much to trust the framing:
+ * an `explicit` phrase is a literal match in the query, `default` means nothing
+ * was recognised, and `laya` means the model picked it and the phrase was silent.
+ */
+export type ExploreSource = 'explicit' | 'default' | 'laya';
+
+export interface ExploreInterpretation {
+	intent: ExploreIntent;
+	/** The product term lifted out of the query, or null when the query named none. */
+	product_term: string | null;
+	source: ExploreSource;
+}
+
+export interface ExploreQuery {
+	query: string;
+	limit?: number;
+}
+
+/**
+ * `GET /api/explore` — deterministic SQL only. `page` is an ordinary `SearchPage`,
+ * so it reuses the fact grain and every row field the result table already renders.
+ */
+export interface ExploreResponse {
+	query: string;
+	/** The dataset day the rows were read from (always the newest). */
+	day: string;
+	interpretation: ExploreInterpretation;
+	page: SearchPage;
+}
+
+/** `POST /api/explore/interpret` — identical shape plus the model's advisory. */
+export interface ExploreInterpretResponse extends ExploreResponse {
+	laya: LayaResult;
+}
+
+/* ------------------------------------------- Laya playground (typed free) */
+
+export type LayaQuestionType = 'choice' | 'score' | 'noul';
+
+/** `choice`: a named option dictionary. */
+export interface LayaChoiceQuestion {
+	type: 'choice';
+	instructions?: string;
+	criteria: Record<string, string>;
+}
+
+/** `score`: an ordinal rubric, index = level. */
+export interface LayaScoreQuestion {
+	type: 'score';
+	instructions?: string;
+	criteria: string[];
+}
+
+/** `noul`: a single yes/no probability. */
+export interface LayaNoulQuestion {
+	type: 'noul';
+	instructions?: string;
+}
+
+export type LayaQuestion = LayaChoiceQuestion | LayaScoreQuestion | LayaNoulQuestion;
+
+/** Arbitrary question names; the answer is normalized by its `type`, never by name. */
+export type LayaQuestions = Record<string, LayaQuestion>;
+
+export interface LayaPlaygroundRequest {
+	state: string;
+	questions: LayaQuestions;
+	/** One of the served checkpoints; omitted lets the Router choose. */
+	model?: string;
+}
+
+/**
+ * `POST /api/laya/playground` echoes the validated request back alongside the
+ * answer, so the panel can render exactly what the model was asked. `laya` is the
+ * same `LayaResult` every other Laya call returns.
+ */
+export interface LayaPlaygroundResponse {
+	state: string;
+	questions: LayaQuestions;
+	laya: LayaResult;
 }

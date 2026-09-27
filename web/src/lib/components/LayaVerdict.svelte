@@ -80,22 +80,22 @@
 
 	/** Which of the two is "confident" versus "near uniform", stated plainly. */
 	function confidenceNote(answer: LayaAnswer | undefined, optionCount: number): string {
-		if (!answer || answer.confidence === null) return 'no confidence reported';
+		if (!answer || answer.confidence === null) return 'tanpa skor keyakinan';
 		const uniform = 1 / optionCount;
-		if (answer.confidence <= uniform * 1.25) return 'near uniform, effectively undecided';
-		if (answer.confidence < 0.5) return 'low';
-		return 'decisive';
+		if (answer.confidence <= uniform * 1.25) return 'hampir merata; belum jelas';
+		if (answer.confidence < 0.5) return 'rendah';
+		return 'tegas';
 	}
 
 	function agreeMark(flag: boolean | null | undefined): string {
 		if (flag === null || flag === undefined) return '—';
-		return flag ? 'agree' : 'differs';
+		return flag ? 'sesuai' : 'berbeda';
 	}
 </script>
 
 <section class="laya">
 	<header>
-		<h4>Laya decides</h4>
+		<h4>Keputusan Laya</h4>
 		{#if data?.laya.available}
 			<span class="meta mono tiny">
 				{data.laya.routing?.model ?? 'model'}{#if data.laya.latency_ms !== null} ·
@@ -106,30 +106,30 @@
 
 	{#if loading}
 		<p class="state pending mono tiny">
-			running a CPU forward pass… {elapsed}s
-			<span class="faint">(400M parameters, no GPU on this host; typical 8–12s)</span>
+			menjalankan model di CPU… {elapsed} dtk
+			<span class="faint">(400 juta parameter, tanpa GPU; biasanya 8–12 dtk)</span>
 		</p>
 	{:else if error}
 		<p class="state bad mono tiny">{error}</p>
 	{:else if data && !data.laya.available}
 		<p class="state bad mono tiny">
-			model unavailable — {data.laya.detail ?? 'no detail'}
-			<span class="faint">the rule verdict below is unaffected</span>
+			model tidak tersedia: {data.laya.detail ?? 'tanpa keterangan'}
+			<span class="faint">keputusan aturan di bawah tetap tersedia</span>
 		</p>
 	{:else if data && agreement}
 		<div class="compare">
 			<table>
 				<thead>
 					<tr>
-						<th>question</th>
-						<th>laya</th>
-						<th>rules</th>
-						<th>verdict</th>
+						<th>pertanyaan</th>
+						<th>Laya</th>
+						<th>aturan</th>
+						<th>perbandingan</th>
 					</tr>
 				</thead>
 				<tbody>
 					<tr>
-						<td class="q">pattern</td>
+						<td class="q">pola</td>
 						<td class="mono">{agreement.laya.pattern ?? '—'}</td>
 						<td class="mono">{agreement.rules.pattern}</td>
 						<td class:agree={agreement.pattern} class:differs={agreement.pattern === false}>
@@ -137,7 +137,7 @@
 						</td>
 					</tr>
 					<tr>
-						<td class="q">severity</td>
+						<td class="q">tingkat</td>
 						<td class="mono">{agreement.laya.severity ?? '—'}</td>
 						<td class="mono">{agreement.rules.severity}</td>
 						<td class:agree={agreement.severity} class:differs={agreement.severity === false}>
@@ -145,7 +145,7 @@
 						</td>
 					</tr>
 					<tr>
-						<td class="q">reorder now</td>
+						<td class="q">pesan ulang sekarang</td>
 						<td class="mono">
 							{#if agreement.laya.reorder_probability !== null}
 								P={agreement.laya.reorder_probability.toFixed(3)}
@@ -153,7 +153,7 @@
 								—
 							{/if}
 						</td>
-						<td class="mono">{agreement.rules.reorder ? 'yes' : 'no'}</td>
+						<td class="mono">{agreement.rules.reorder ? 'ya' : 'tidak'}</td>
 						<td class:agree={agreement.reorder} class:differs={agreement.reorder === false}>
 							{agreeMark(agreement.reorder)}
 						</td>
@@ -173,7 +173,7 @@
 					</span>
 				</div>
 				{#if answer.score_position !== null}
-					<span class="mono tiny faint">rubric position {answer.score_position.toFixed(3)} / 3</span>
+					<span class="mono tiny faint">posisi rubrik {answer.score_position.toFixed(3)} / 3</span>
 				{/if}
 				<ul class="probs">
 					{#each sortedProbabilities(answer) as [option, probability] (option)}
@@ -188,7 +188,7 @@
 		{/each}
 
 		<details class="state-text">
-			<summary class="mono tiny faint">state sent to the model</summary>
+			<summary class="mono tiny faint">kondisi yang dikirim ke model</summary>
 			<p class="mono tiny">{data.state_text}</p>
 		</details>
 	{/if}

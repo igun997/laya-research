@@ -1,5 +1,5 @@
 /**
- * Typed fetch helpers for every endpoint in docs/CONTRACT.md §5.
+ * Typed fetch helpers for the endpoints described in README.md.
  *
  * Base URL: `import.meta.env.PUBLIC_API_BASE` when set (docker compose injects `/api`),
  * otherwise `/api` — which is exactly how Caddy routes the browser's traffic.
@@ -9,8 +9,13 @@
 import type {
 	CategorySeriesResponse,
 	DecideResponse,
+	ExploreInterpretResponse,
+	ExploreQuery,
+	ExploreResponse,
 	HealthResponse,
 	LayaHealthResponse,
+	LayaPlaygroundRequest,
+	LayaPlaygroundResponse,
 	MetaResponse,
 	OverviewResponse,
 	PatternsResponse,
@@ -321,4 +326,65 @@ export function getDecide(
 		{ day: options.day },
 		{ signal, timeoutMs: options.timeoutMs ?? 180_000 }
 	);
+}
+
+/* --------------------------------------------------- free-text explore */
+
+/**
+ * `GET /api/explore` — natural language in, deterministic SQL rows out.
+ *
+ * No model runs here. The query is parsed server-side into a bounded product
+ * term plus one supported intent, and the retrieval is plain bound SQL over the
+ * newest dataset day, so this returns in the same order of time as `/api/search`.
+ * Laya is a separate advisory call: `interpretExplore`.
+ */
+export function explore(query: ExploreQuery, signal?: AbortSignal): Promise<ExploreResponse> {
+	return request<ExploreResponse>(
+		'/explore',
+		{ query: query.query, limit: query.limit },
+		{ signal }
+	);
+}
+
+/**
+ * `POST /api/explore/interpret` — the same deterministic rows plus Laya's
+ * advisory reading of the query.
+ *
+ * A CPU forward pass takes seconds; the search form calls this after typing
+ * pauses and displays a pending state. Live ticks never trigger it.
+ * An explicit phrase wins over the model; `interpretation.source` says which.
+ */
+export function interpretExplore(
+	query: ExploreQuery,
+	signal?: AbortSignal
+): Promise<ExploreInterpretResponse> {
+	return request<ExploreInterpretResponse>('/explore/interpret', undefined, {
+		method: 'POST',
+		body: { query: query.query, limit: query.limit },
+		signal,
+		timeoutMs: 180_000
+	});
+}
+
+/* ------------------------------------------------------- Laya playground */
+
+/**
+ * `POST /api/laya/playground` — free-text state plus a typed question schema.
+ *
+ * The state is validated server-side (bounded length, printable) and every
+ * question must be one of the three primitives, so this is not an open proxy to
+ * the model container. Question names are arbitrary: the server normalizes each
+ * answer by the question's `type`, so `{"mood": {"type": "choice", ...}}` answers
+ * as a choice distribution rather than silently falling back to a default.
+ */
+export function layaPlayground(
+	body: LayaPlaygroundRequest,
+	signal?: AbortSignal
+): Promise<LayaPlaygroundResponse> {
+	return request<LayaPlaygroundResponse>('/laya/playground', undefined, {
+		method: 'POST',
+		body,
+		signal,
+		timeoutMs: 180_000
+	});
 }

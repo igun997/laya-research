@@ -15,7 +15,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import decide, overview, rules, search, stream
+from . import decide, explore, overview, rules, search, stream
 from .db import close_pool, open_pool, pool
 from .overview import dataset_summary
 from .schemas import PatternsOut, ScanIn, ScanOut, SeenIn, SeenOut, SignalsOut
@@ -263,5 +263,6 @@ api.include_router(search.router)
 api.include_router(overview.router)
 api.include_router(stream.router)
 api.include_router(decide.router)
+api.include_router(explore.router)
 
 app.include_router(api, prefix=API_PREFIX)

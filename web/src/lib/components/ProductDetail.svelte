@@ -61,12 +61,12 @@
 
 <aside class="panel detail">
 	<header>
-		<h2>product</h2>
+		<h2>Rincian produk</h2>
 		<div class="hdr-right">
 			{#if data}
 				<span class="mono tiny faint">#{data.product.product_id} {data.product.sku}</span>
 			{/if}
-			<button type="button" class="tiny" onclick={() => onClose?.()} title="close detail">✕</button>
+			<button type="button" class="tiny" onclick={() => onClose?.()} title="tutup rincian">✕</button>
 		</div>
 	</header>
 
@@ -74,7 +74,7 @@
 		{#if error}
 			<p class="error">{error}</p>
 		{:else if !data}
-			<p class="empty">{loading ? 'loading series…' : 'no product selected'}</p>
+			<p class="empty">{loading ? 'memuat riwayat…' : 'belum ada produk yang dipilih'}</p>
 		{:else}
 			<div class="head">
 				<h3 title={data.product.name}>{data.product.name}</h3>
@@ -82,19 +82,19 @@
 					{data.product.brand} · {data.product.category} / {data.product.subcategory} ·
 					{data.product.uom}
 					{#if data.product.pack_size !== 1}
-						· pack {data.product.pack_size}
+						· kemasan {data.product.pack_size}
 					{/if}
 				</p>
 				<p class="tags">
-					{#if data.product.is_private_label}<span class="badge sev-info">private label</span>{/if}
-					{#if data.product.is_perishable}<span class="badge sev-warn">perishable</span>{/if}
-					<span class="badge faint">list {fmtPrice(data.product.list_price)}</span>
+					{#if data.product.is_private_label}<span class="badge sev-info">merek toko</span>{/if}
+					{#if data.product.is_perishable}<span class="badge sev-warn">mudah rusak</span>{/if}
+					<span class="badge faint">harga daftar {fmtPrice(data.product.list_price)}</span>
 				</p>
 			</div>
 
 			<div class="kpis">
 				<div class="kpi">
-					<span class="label">price</span>
+					<span class="label">harga</span>
 					<span class="mono big">{latest ? fmtPrice(latest.avg_price) : fmtPrice(data.product.latest_price)}</span>
 					{#if priceChange !== null}
 						<span class="mono tiny" class:up={priceChange >= 0} class:down={priceChange < 0}>
@@ -103,7 +103,7 @@
 					{/if}
 				</div>
 				<div class="kpi">
-					<span class="label">units</span>
+					<span class="label">terjual</span>
 					<span class="mono big">{latest ? fmtInt(latest.units) : fmtInt(data.product.latest_units)}</span>
 					{#if unitsChange !== null}
 						<span class="mono tiny" class:up={unitsChange >= 0} class:down={unitsChange < 0}>
@@ -118,14 +118,14 @@
 					</span>
 				</div>
 				<div class="kpi">
-					<span class="label">inventory</span>
+					<span class="label">stok</span>
 					<span class="mono big">{latest ? fmtInt(latest.inventory) : '—'}</span>
 				</div>
 			</div>
 
 			<div class="chart">
 				<div class="chart-head">
-					<span class="label">units / day</span>
+					<span class="label">terjual / hari</span>
 					<span class="mono tiny faint">
 						{series.length > 0 ? `${fmtDay(series[0].day)} → ${fmtDay(series[series.length - 1].day)}` : '—'}
 					</span>
@@ -133,45 +133,45 @@
 				<Sparkline
 					values={unitsValues}
 					zeroBased
-					label="units"
+					label="unit terjual"
 					format={(value) => fmtInt(value)}
 				/>
 			</div>
 
 			<div class="chart">
 				<div class="chart-head">
-					<span class="label">avg price / day</span>
+					<span class="label">harga rata-rata / hari</span>
 					<span class="mono tiny faint">
-						{latest ? `store mean over ${fmtInt(latest.store_count)} stores` : '—'}
+						{latest ? `rata-rata dari ${fmtInt(latest.store_count)} toko` : '—'}
 					</span>
 				</div>
 				<Sparkline
 					values={priceValues}
-					label="avg price"
+					label="harga rata-rata"
 					format={(value) => value.toFixed(2)}
 				/>
 			</div>
 
 			<div class="chart">
 				<div class="chart-head">
-					<span class="label">inventory / day</span>
-					<span class="mono tiny faint">stockout when cover &lt; 1.2 days</span>
+					<span class="label">stok / hari</span>
+					<span class="mono tiny faint">risiko kehabisan bila stok mencukupi &lt; 1,2 hari</span>
 				</div>
 				<Sparkline
 					values={inventoryValues}
 					zeroBased
 					area={false}
 					height={30}
-					label="inventory"
+					label="stok"
 					format={(value) => fmtInt(value)}
 				/>
 			</div>
 
 			<div class="chart">
 				<div class="chart-head">
-					<span class="label">promo stores / day</span>
+					<span class="label">toko promosi / hari</span>
 					<span class="mono tiny faint">
-						{latest ? `${fmtPct(latest.promo_stores / Math.max(1, latest.store_count))} of stores` : '—'}
+						{latest ? `${fmtPct(latest.promo_stores / Math.max(1, latest.store_count))} dari toko` : '—'}
 					</span>
 				</div>
 				<Sparkline
@@ -179,7 +179,7 @@
 					zeroBased
 					area={false}
 					height={30}
-					label="promo stores"
+					label="toko promosi"
 					format={(value) => fmtInt(value)}
 				/>
 			</div>
@@ -187,12 +187,12 @@
 			<table class="recent">
 				<thead>
 					<tr>
-						<th>day</th>
-						<th class="num">units</th>
-						<th class="num">price</th>
-						<th class="num">revenue</th>
+						<th>hari</th>
+						<th class="num">terjual</th>
+						<th class="num">harga</th>
+						<th class="num">pendapatan</th>
 						<th class="num">margin</th>
-						<th class="num">inv</th>
+						<th class="num">stok</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -207,7 +207,7 @@
 						</tr>
 					{/each}
 					{#if series.length === 0}
-						<tr><td colspan="6" class="empty">no series rows</td></tr>
+						<tr><td colspan="6" class="empty">belum ada data riwayat</td></tr>
 					{/if}
 				</tbody>
 			</table>

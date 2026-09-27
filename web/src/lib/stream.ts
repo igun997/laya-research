@@ -1,10 +1,10 @@
 /**
- * WebSocket client for `GET /api/stream` (docs/CONTRACT.md §6.2).
+ * WebSocket client for `GET /api/stream` (README.md, API/WebSocket).
  *
  * - URL derived from `location` (falls back to the API base when there is no location).
  * - Auto-reconnect with exponential backoff and jitter; heartbeat watchdog.
  * - `status` is reactive-friendly: `subscribeStatus` callbacks plus a `status` getter.
- * - `subscribe(patterns, severities)` sends the §6.2 subscribe frame (empty = all).
+ * - `subscribe(patterns, severities)` sends a subscribe frame (empty = all).
  * - `ping` every 25 s (server answers `pong`; also keeps intermediaries from idling us out).
  */
 

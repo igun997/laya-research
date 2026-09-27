@@ -49,11 +49,11 @@
 
 <section class="panel overview">
 	<header>
-		<h2>overview</h2>
+		<h2>Ringkasan pasar</h2>
 		<div class="hdr-right">
 			{#if overview}
 				<span class="mono tiny faint" title={`rollups_as_of ${overview.rollups_as_of}`}>
-					rollups {fmtAgo(overview.rollups_as_of, now)}
+					ringkasan {fmtAgo(overview.rollups_as_of, now)}
 				</span>
 			{/if}
 			<span class="chips">
@@ -63,7 +63,7 @@
 						class="chip"
 						aria-pressed={days === option}
 						onclick={() => onDays?.(option)}
-					>{option}d</button>
+					>{option} hari</button>
 				{/each}
 			</span>
 		</div>
@@ -73,29 +73,29 @@
 		{#if error}
 			<p class="error">{error}</p>
 		{:else if !overview}
-			<p class="empty">{loading ? 'loading overview…' : 'no overview'}</p>
+			<p class="empty">{loading ? 'memuat ringkasan…' : 'belum ada ringkasan'}</p>
 		{:else}
 			{#if rollupLagSeconds !== null && rollupLagSeconds > 60}
 				<p class="stale-note">
-					rollups are {Math.round(rollupLagSeconds)}s behind the live tick stream — day bars and the
-					category table read materialized views, the movers list uses live facts.
+					ringkasan tertinggal {Math.round(rollupLagSeconds)} dtk dari tick langsung.
+					Diagram harian dan tabel kategori memakai ringkasan; produk teratas memakai data langsung.
 				</p>
 			{/if}
 
 			<div class="kpis">
 				<div class="kpi">
-					<span class="label">latest day</span>
+					<span class="label">hari terbaru</span>
 					<span class="mono">{latestDay ? latestDay.day : '—'}</span>
 				</div>
 				<div class="kpi">
-					<span class="label">units</span>
+					<span class="label">unit terjual</span>
 					<span class="mono">{latestDay ? fmtInt(latestDay.units) : '—'}</span>
 					{#if unitsDod !== null}
 						<span class="mono dod" class:up={unitsDod >= 0} class:down={unitsDod < 0}>{fmtSignedPct(unitsDod)}</span>
 					{/if}
 				</div>
 				<div class="kpi">
-					<span class="label">revenue</span>
+					<span class="label">pendapatan</span>
 					<span class="mono">{latestDay ? fmtCompact(latestDay.revenue) : '—'}</span>
 					{#if revenueDod !== null}
 						<span class="mono dod" class:up={revenueDod >= 0} class:down={revenueDod < 0}>{fmtSignedPct(revenueDod)}</span>
@@ -108,27 +108,27 @@
 					</span>
 				</div>
 				<div class="kpi">
-					<span class="label">pl share</span>
+					<span class="label">porsi merek toko</span>
 					<span class="mono">{latestDay ? fmtPct(latestDay.pl_share) : '—'}</span>
 				</div>
 				<div class="kpi">
-					<span class="label">as of</span>
+					<span class="label">diperbarui</span>
 					<span class="mono faint">{fmtAgo(overview.as_of, now)}</span>
 				</div>
 			</div>
 
 			<div class="grid">
 				<div class="block">
-					<h3>day bars</h3>
+					<h3>Penjualan per hari</h3>
 					<div class="bars">
 						{#each bars as row (row.day)}
 							<div class="bar-row">
 								<span class="bar-day mono">{fmtDay(row.day)}</span>
-								<span class="bar-track" title={`units ${fmtInt(row.units)}`}>
+								<span class="bar-track" title={`unit terjual ${fmtInt(row.units)}`}>
 									<span class="bar bar-units" style={`width:${((row.units / maxUnits) * 100).toFixed(2)}%`}></span>
 								</span>
 								<span class="bar-val mono">{fmtCompact(row.units)}</span>
-								<span class="bar-track" title={`revenue ${fmtCompact(row.revenue)}`}>
+								<span class="bar-track" title={`pendapatan ${fmtCompact(row.revenue)}`}>
 									<span class="bar bar-rev" style={`width:${((row.revenue / maxRevenue) * 100).toFixed(2)}%`}></span>
 								</span>
 								<span class="bar-val mono">{fmtCompact(row.revenue)}</span>
@@ -137,25 +137,25 @@
 						{/each}
 					</div>
 					<p class="legend faint">
-						<span class="key key-units"></span>units
-						<span class="key key-rev"></span>revenue
+						<span class="key key-units"></span>unit terjual
+						<span class="key key-rev"></span>pendapatan
 					</p>
 				</div>
 
 				<div class="block">
-					<h3>top movers <span class="faint">by lift</span></h3>
+					<h3>Produk yang naik <span class="faint">berdasarkan kenaikan</span></h3>
 					{#if movers.length === 0}
-						<p class="empty">no movers with a valid baseline yet</p>
+						<p class="empty">belum ada produk dengan pembanding yang valid</p>
 					{:else}
 						<table class="movers">
 							<thead>
 								<tr>
-									<th>product</th>
-									<th>category</th>
-									<th class="num">units</th>
-									<th class="num">base</th>
-									<th class="num">lift</th>
-									<th class="num">revenue</th>
+									<th>produk</th>
+									<th>kategori</th>
+									<th class="num">terjual</th>
+									<th class="num">pembanding</th>
+									<th class="num">kenaikan</th>
+									<th class="num">pendapatan</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -185,17 +185,17 @@
 			</div>
 
 			<div class="block">
-				<h3>categories <span class="faint">{fmtInt(categories.length)}</span></h3>
+				<h3>Kategori <span class="faint">{fmtInt(categories.length)}</span></h3>
 				<div class="cat-scroll">
 					<table class="cats">
 						<thead>
 							<tr>
-								<th>category</th>
-								<th class="num">units</th>
-								<th class="num">revenue</th>
+								<th>kategori</th>
+								<th class="num">terjual</th>
+								<th class="num">pendapatan</th>
 								<th class="num">margin</th>
-								<th class="num">pl share</th>
-								<th class="num">dod</th>
+								<th class="num">porsi merek toko</th>
+								<th class="num">perubahan harian</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -219,7 +219,7 @@
 								</tr>
 							{/each}
 							{#if categories.length === 0}
-								<tr><td colspan="6" class="empty">no category rollups</td></tr>
+								<tr><td colspan="6" class="empty">belum ada ringkasan kategori</td></tr>
 							{/if}
 						</tbody>
 					</table>

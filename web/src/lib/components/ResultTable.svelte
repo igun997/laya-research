@@ -26,17 +26,17 @@
 	}: Props = $props();
 
 	const COLUMNS: { key: string; label: string; sortable?: SortKey; numeric?: boolean }[] = [
-		{ key: 'day', label: 'day', sortable: 'day' },
-		{ key: 'store', label: 'store' },
-		{ key: 'product', label: 'product' },
-		{ key: 'brand', label: 'brand' },
-		{ key: 'category', label: 'category' },
-		{ key: 'price', label: 'price', sortable: 'price', numeric: true },
-		{ key: 'units', label: 'units', sortable: 'units', numeric: true },
-		{ key: 'revenue', label: 'revenue', sortable: 'revenue', numeric: true },
+		{ key: 'day', label: 'hari', sortable: 'day' },
+		{ key: 'store', label: 'toko' },
+		{ key: 'product', label: 'produk' },
+		{ key: 'brand', label: 'merek' },
+		{ key: 'category', label: 'kategori' },
+		{ key: 'price', label: 'harga', sortable: 'price', numeric: true },
+		{ key: 'units', label: 'terjual', sortable: 'units', numeric: true },
+		{ key: 'revenue', label: 'pendapatan', sortable: 'revenue', numeric: true },
 		{ key: 'margin', label: 'margin', sortable: 'margin', numeric: true },
 		{ key: 'promo', label: 'promo' },
-		{ key: 'inventory', label: 'inventory', numeric: true }
+		{ key: 'inventory', label: 'stok', numeric: true }
 	];
 
 	const items = $derived(page?.items ?? []);
@@ -67,35 +67,35 @@
 
 <section class="panel results">
 	<header>
-		<h2>rows</h2>
+		<h2>Hasil pencarian</h2>
 		<div class="hdr-right mono tiny">
 			{#if loading}
-				<span class="faint">loading…</span>
+				<span class="faint">memuat…</span>
 			{:else if page}
-				<span class="faint">{fmtInt(firstRow)}–{fmtInt(lastRow)} of {fmtInt(total)}</span>
+				<span class="faint">{fmtInt(firstRow)}–{fmtInt(lastRow)} dari {fmtInt(total)}</span>
 			{:else}
-				<span class="faint">no query yet</span>
+				<span class="faint">belum ada pencarian</span>
 			{/if}
 			<span class="pager">
-				<button type="button" disabled={pageIndex <= 0} onclick={() => onPage?.(0)} title="first page">«</button>
+				<button type="button" disabled={pageIndex <= 0} onclick={() => onPage?.(0)} title="halaman pertama">«</button>
 				<button
 					type="button"
 					disabled={pageIndex <= 0}
 					onclick={() => onPage?.(Math.max(0, offset - limit))}
-					title="previous page"
+					title="halaman sebelumnya"
 				>‹</button>
-				<span class="faint">p{fmtInt(pageIndex + 1)}/{fmtInt(pageCount)}</span>
+				<span class="faint">hal {fmtInt(pageIndex + 1)}/{fmtInt(pageCount)}</span>
 				<button
 					type="button"
 					disabled={offset + limit >= total}
 					onclick={() => onPage?.(offset + limit)}
-					title="next page"
+					title="halaman berikutnya"
 				>›</button>
 				<button
 					type="button"
 					disabled={offset + limit >= total}
 					onclick={() => onPage?.(Math.max(0, (pageCount - 1) * limit))}
-					title="last page"
+					title="halaman terakhir"
 				>»</button>
 			</span>
 		</div>
@@ -149,7 +149,7 @@
 					{#if items.length === 0}
 						<tr>
 							<td colspan={COLUMNS.length} class="empty">
-								{loading ? 'querying…' : 'no rows match the current filters'}
+								{loading ? 'mencari…' : 'tidak ada baris yang cocok dengan filter'}
 							</td>
 						</tr>
 					{/if}
@@ -157,7 +157,7 @@
 				{#if totals}
 					<tfoot>
 						<tr>
-							<td colspan="6" class="faint">totals (whole filtered set, {fmtInt(totals.rows)} rows)</td>
+							<td colspan="6" class="faint">total (semua hasil, {fmtInt(totals.rows)} baris)</td>
 							<td class="num">{fmtInt(totals.units)}</td>
 							<td class="num">{fmtCompact(totals.revenue)}</td>
 							<td class="num margin-{marginBand(totals.margin_pct)}">{fmtPct(totals.margin_pct)}</td>

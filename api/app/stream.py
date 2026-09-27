@@ -1,12 +1,12 @@
 """Realtime transport: one LISTEN thread, in-process tick worker, WS fan-out.
 
-Ownership follows ``docs/CONTRACT.md`` §6.2: the API holds **exactly one** LISTEN
+The API holds **exactly one** LISTEN
 connection, on its own supervised thread with exponential-backoff reconnect, and
 fans every frame out to all WebSocket clients. The thread never touches the
 database pool and never blocks: payloads are handed to the event loop through a
 bounded queue, and a consumer task does the rule work.
 
-On each tick the worker runs the §4 freshness path — recompute the ``target_day``
+On each tick the worker runs the freshness path: recompute the ``target_day``
 rollup live from ``market_facts``, take earlier days from the materialised views —
 then evaluates the catalog, upserts new or changed signals and broadcasts them.
 Unchanged signals are neither re-persisted nor re-emitted.

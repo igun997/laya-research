@@ -1,7 +1,7 @@
 """Decision-pattern catalog and rule engine.
 
 The catalog in :data:`RULES` is declarative and is served verbatim by
-``GET /api/patterns``. Evaluation follows ``docs/CONTRACT.md`` §4:
+``GET /api/patterns``. Evaluation follows the invariants in ``README.md``:
 
 * baseline for a subject at day ``d`` is the **median** over ``d-14 .. d-1``
   (``percentile_cont(0.5) WITHIN GROUP``), suppressed when fewer than

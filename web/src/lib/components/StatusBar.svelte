@@ -34,58 +34,58 @@
 	}: Props = $props();
 
 	const statusLabel = $derived(
-		status === 'live' ? 'live' : status === 'reconnecting' ? 'reconnecting' : status === 'connecting' ? 'connecting' : 'offline'
+		status === 'live' ? 'langsung' : status === 'reconnecting' ? 'menghubungkan ulang' : status === 'connecting' ? 'menghubungkan' : 'terputus'
 	);
 </script>
 
 <header class="statusbar">
 	<span class="brand">
-		<strong>laya</strong><span class="faint">/market datasheet</span>
+		<strong>laya</strong><span class="faint">/data pasar</span>
 	</span>
 
 	<span class="sep" aria-hidden="true"></span>
 
-	<span class="stat" title="rows in market_facts">
-		<span class="label">facts</span>
+	<span class="stat" title="baris di market_facts">
+		<span class="label">fakta</span>
 		<span class="mono val">{dataset ? fmtInt(dataset.facts) : '—'}</span>
 	</span>
-	<span class="stat" title="products x stores">
-		<span class="label">catalog</span>
+	<span class="stat" title="jumlah produk dan toko">
+		<span class="label">katalog</span>
 		<span class="mono val">
 			{dataset ? `${fmtInt(dataset.products)}p / ${fmtInt(dataset.stores)}s` : '—'}
 		</span>
 	</span>
-	<span class="stat" title="day range of the datasheet">
-		<span class="label">days</span>
+	<span class="stat" title="rentang hari dalam data">
+		<span class="label">hari</span>
 		<span class="mono val">
 			{dataset ? `${dataset.day_min} → ${dataset.day_max}` : '—'}
 		</span>
 	</span>
-	<span class="stat" title="seed used by the generator">
+	<span class="stat" title="seed generator data">
 		<span class="label">seed</span>
 		<span class="mono val">{dataset ? dataset.seed : '—'}</span>
 	</span>
 
 	<span class="sep" aria-hidden="true"></span>
 
-	<span class="stat" title="simulator target day">
-		<span class="label">tick day</span>
+	<span class="stat" title="hari target simulasi">
+		<span class="label">hari simulasi</span>
 		<span class="mono val">{day ?? '—'}</span>
 	</span>
-	<span class="stat" title="tick frames received this session">
-		<span class="label">ticks</span>
+	<span class="stat" title="jumlah tick diterima selama sesi ini">
+		<span class="label">tick</span>
 		<span class="mono val">{fmtInt(ticks)}</span>
 	</span>
-	<span class="stat" title="tick counter reported by the simulator">
-		<span class="label">sim tick</span>
+	<span class="stat" title="penghitung tick dari simulator">
+		<span class="label">tick simulasi</span>
 		<span class="mono val">{lastTick === null ? '—' : fmtInt(lastTick)}</span>
 	</span>
-	<span class="stat" title="age of the last websocket frame">
-		<span class="label">last frame</span>
+	<span class="stat" title="waktu sejak pesan WebSocket terakhir">
+		<span class="label">pesan terakhir</span>
 		<span class="mono val">{lastFrameAt === null ? '—' : fmtAgo(new Date(lastFrameAt).toISOString(), now)}</span>
 	</span>
-	<span class="stat" title="age of the newest materialized-view rollup">
-		<span class="label">rollup lag</span>
+	<span class="stat" title="usia ringkasan materialized view terbaru">
+		<span class="label">jeda ringkasan</span>
 		<span class="mono val" class:stale={(rollupLagSeconds ?? 0) > 60}>
 			{fmtDuration(rollupLagSeconds)}
 		</span>
@@ -94,13 +94,13 @@
 	<span class="spacer"></span>
 
 	{#if loading}
-		<span class="faint mono tiny">loading…</span>
+		<span class="faint mono tiny">memuat…</span>
 	{/if}
 	{#if error}
-		<span class="error" title={error}>meta error: {error}</span>
+		<span class="error" title={error}>galat metadata: {error}</span>
 	{/if}
 
-	<span class="ws ws-{status}" title={`reconnects: ${reconnects}`}>
+	<span class="ws ws-{status}" title={`sambungan ulang: ${reconnects}`}>
 		<span class="dot" aria-hidden="true"></span>
 		<span class="mono">{statusLabel}</span>
 		{#if status !== 'live' && reconnects > 0}

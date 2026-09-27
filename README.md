@@ -15,6 +15,16 @@ open http://localhost:8090
 First boot takes a few minutes: it generates ~7M fact rows and streams them into Postgres
 with `COPY`. Subsequent `up` runs skip generation (`LAYA_MODE=ensure`).
 
+Antarmuka memakai bahasa Indonesia. Kolom pencarian paling atas menerima pertanyaan
+seperti `produk mana yang stoknya menipis?`, `penjualan roti tertinggi`, atau
+`sayur diskon`. SQL menampilkan baris produk per toko pada hari data terbaru;
+hasil diperbarui saat tick simulasi masuk. Model Laya menafsirkan pertanyaan
+otomatis setelah pengguna berhenti mengetik, dengan indikator proses di bawah
+kolom pencarian. Inferensi CPU memakan waktu beberapa detik dan tidak diulang
+pada tiap tick. Hasil model adalah saran, bukan pengganti data SQL. Panel
+**Eksperimen Laya** menerima teks kondisi dan pertanyaan bertipe (`choice`,
+`score`, `noul`) yang dapat diedit sebelum dijalankan.
+
 ---
 
 ## Architecture
@@ -82,6 +92,24 @@ weekend seasonality, per-store demand and price indices, ~8% of cells promoted w
 lift and a price cut, and forward cover deliberately sampled low enough that stockouts occur.
 
 Retuning size is an env change — `LAYA_STORES=400 LAYA_PRODUCTS=4000 LAYA_DAYS=30 make up`.
+
+### Data and service invariants
+
+The schema in `db/init/01_schema.sql` is authoritative. All services calculate
+`margin = (revenue - cogs) / revenue` (zero for zero revenue), `avg_price` as
+the **unweighted** average store price, `pl_share = pl_units / units`, and
+`promo_share = promo_stores / store_count`. The generator streams via PostgreSQL
+`COPY` instead of holding the full grid in memory. In `LAYA_MODE=ensure` it
+leaves an already populated, matching seed alone; `force` truncates facts,
+clears signals, regenerates dimensions and facts, refreshes materialized
+views, and analyzes the tables. The primary key is `(day, store_id, product_id)`.
+
+`sim` updates only the newest day's fact values, never fact keys or row count.
+Its tick notification includes deduplicated product and store IDs and caps the
+row list to fit PostgreSQL's 8 KB notification limit. The API holds one
+supervised `LISTEN` connection, fans out to WebSocket clients, and evaluates
+rules from live newest-day facts plus historical materialized views. Rollup
+refresh is concurrent and does not block ticks; staleness is shown in the UI.
 
 ---
 
@@ -249,21 +277,30 @@ Laya is advisory throughout: `LAYA_ENABLED=0`, a missing container, or a timeout
 
 ## API
 
-Full request/response shapes: [`docs/CONTRACT.md`](docs/CONTRACT.md) §5. Summary:
+The API uses JSON and snake_case. The key request and response shapes are below;
+`api/app/schemas.py` and `web/src/lib/types.ts` define the executable contract.
 
-```
-GET  /api/health
-GET  /api/meta
+```text
+GET  /api/health                         status, db, rollup_lag_seconds, dataset
+GET  /api/meta                           dataset, categories, brands, formats, regions
 GET  /api/products?q=&category=&brand=&private_label=&perishable=&limit=&offset=
 GET  /api/search?q=&product_id=&store_id=&category=&brand=&format=&region=&promo=
-                &min_price=&max_price=&min_units=&date_from=&date_to=&sort=&limit=&offset=
+                 &min_price=&max_price=&min_units=&date_from=&date_to=&sort=&limit=&offset=
+GET  /api/explore?query=&limit=           newest-day SQL search; no model
+POST /api/explore/interpret               {"query":"susu stok menipis","limit":20}
+POST /api/laya/playground                 {"state":"...","questions":{"name":{"type":"choice",
+                                             "criteria":{"option":"description"}}},"model":null}
 GET  /api/overview?days=
 GET  /api/patterns
 GET  /api/signals?pattern=&severity=&subject_type=&subject_id=&since=&limit=&only_unseen=
-POST /api/signals/seen            {"signal_ids":[...]}
-POST /api/patterns/scan           {"day":null,"product_ids":null,"categories":null,"persist":true}
+POST /api/signals/seen                    {"signal_ids":[...]}
+POST /api/patterns/scan                   {"day":null,"product_ids":null,"categories":null,"persist":true}
 GET  /api/products/{id}/series?days=
 GET  /api/categories/{category}/series?days=
+GET  /api/laya/health
+GET  /api/laya/questions
+GET  /api/decide/{product_id}?day=&model=
+GET  /api/dataset/fingerprint?day=
 WS   /api/stream
 ```
 
@@ -271,6 +308,33 @@ WS   /api/stream
 generated `tsvector`, ordered by `ts_rank`, with a trigram/`ILIKE` fallback for partial and
 punctuation-only input. `/api/search` is the fact-grain workhorse: structured filters over 7M rows
 with `totals` computed over the whole filtered set, not just the page.
+
+`/api/explore` interprets the query with explicit phrases first (low inventory,
+high/low sales, promotion, high/low price, or browse), resolves an optional
+product/category term, and returns
+`{"query","day","interpretation":{"intent","product_term","source"},"page":<SearchPage>}`.
+Unknown products return zero rows rather than all products. Inventory is ranked
+per store-product fact row, not summed by product. The Indonesian UI accepts
+common Indonesian questions and maps a limited grocery vocabulary (for example,
+`susu` to `milk`) to the English catalog; other catalog names remain English.
+`/api/explore/interpret` adds `laya` and applies a supported model intent only
+when no explicit phrase matches. The model is advisory and may disagree with
+SQL's explicit intent. Queries are at most 200 characters; `limit` is 1–100.
+
+`/api/laya/playground` accepts 1–8 caller-named questions against up to 4,000
+characters of state. `choice` uses an option-description map, `score` an ordered
+list of rubric levels, and `noul` no criteria. Each has at most 20 options.
+The answer includes the declared primitive, probabilities where applicable,
+model routing, latency, and `available`; an unavailable model never invents an
+answer. The playground runs only when submitted; natural-language search
+automatically runs one model pass after a pause and never on tick refresh.
+
+`/api/search` returns `{"total","limit","offset","items","totals"}`; `totals`
+covers the entire filtered set, not only the current page (`limit <= 500`).
+`/api/health` measures `rollup_lag_seconds` from the simulator's last materialized
+view refresh, not from the dataset date. `persist:false` on `/api/patterns/scan`
+does not write signals. `GET /api/dataset/fingerprint` hashes the fact values
+for one day, so a benchmark rejects a changed dataset even if row counts match.
 
 ### WebSocket
 
@@ -293,7 +357,7 @@ make stream      # tail the websocket for 25s (dependency-free client)
 make psql        # interactive psql on the datasheet
 make gen-force   # regenerate the datasheet from LAYA_SEED
 make down        # stop, keep data
-make reset       # stop and destroy the volume
+make reset       # stop and destroy project volumes (facts and model cache)
 
 make laya-health   # is the decision model loaded, and which checkpoint
 make laya-questions# the frozen question schema
@@ -303,11 +367,23 @@ make bench                      # benchmark Laya vs the rules (stops sim for the
 make bench-report               # reprint the newest benchmark report
 ```
 
+To stop and remove this project's containers, database, and cached checkpoints,
+run `docker compose down --volumes --remove-orphans`. This permanently deletes
+the generated dataset and downloaded model weights; the next `make up` will
+regenerate facts and download checkpoints again. To remove **only this project's
+built images**, inspect `docker image ls --filter reference='laya-research-*'`,
+then remove `laya-research-api:latest`, `laya-research-web:latest`,
+`laya-research-sim:latest`, `laya-research-generator:latest`,
+`laya-research-laya:latest`, and (if present) the probe's
+`laya-research-laya:dev` with `docker image rm`. Do not remove shared upstream
+`postgres`, `caddy`, Python, or Node images.
+
 ### Verification
 
 ```bash
 scripts/smoke.sh --up     # build, start, then assert the whole path end to end
 python3 scripts/ws_probe.py --seconds 25
+npm --prefix web run check
 ```
 
 `smoke.sh` asserts the datasheet size, full-text and fact-grain search, sort/limit/totals
@@ -369,10 +445,10 @@ frames arrive and that a watched fact row actually changed while it was watching
   the field only when it names a known checkpoint and otherwise falls back to the Router silently.
   A benchmark labelled `typed-decisions` measured `english` twice before this was understood, which
   is why `scripts/bench_laya.py` fires a canary request and refuses to score a run whose
-  `routing.model` is not the checkpoint it was asked for. See `docs/CONTRACT.md` §9.6.
+  `routing.model` is not the checkpoint it was asked for.
 - **`answer_confidence` is the probability of the chosen answer**; the sibling `confidence` field is a
   different, smaller quantity for `choice` and `score`. Calibrating on `confidence` would understate
-  confidence badly. See `docs/CONTRACT.md` §9.3.
+  confidence badly.
 - **`sim` must be stopped during a benchmark.** It mutates the newest day every 4 seconds, so labels
   scanned at the start would drift from states decided minutes later. `make bench` handles this.
 - **The benchmark labels come from the rule engine.** They are deterministic threshold rules, not

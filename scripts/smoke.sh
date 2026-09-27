@@ -97,6 +97,22 @@ FIRST=$(probe "$S" 'sorted(d["items"], key=lambda r: -r["revenue"])[0]["revenue"
 [[ -n "$(probe "$S" 'd["items"][0]["store_name"]')" ]] && ok "store joined" || bad "store_name missing"
 [[ -n "$(probe "$S" 'd["items"][0]["margin_pct"]')" ]] && ok "margin_pct present" || bad "margin_pct missing"
 
+info "GET /api/explore  (free-text intent + live fact rows)"
+E=$(get "$BASE/api/explore?query=milk%20with%20low%20inventory&limit=5")
+[[ "$(probe "$E" 'd["interpretation"]["intent"] == "low_inventory" and d["interpretation"]["product_term"] == "milk"')" == "True" ]] \
+  && ok "free text identified milk and the inventory intent" || bad "incorrect interpretation :: $E"
+[[ "$(probe "$E" 'len(d["page"]["items"]) == 5 and all("milk" in r["product"].lower() for r in d["page"]["items"]) and [r["inventory"] for r in d["page"]["items"]] == sorted(r["inventory"] for r in d["page"]["items"])')" == "True" ]] \
+  && ok "milk facts ranked by ascending inventory" || bad "inventory result did not match query"
+EC=$(get "$BASE/api/explore?query=promo%20produce&limit=5")
+[[ "$(probe "$EC" 'd["page"]["total"] > 0 and all(r["category"] == "Produce" and r["promo_flag"] for r in d["page"]["items"])')" == "True" ]] \
+  && ok "category and promotion intent constrain the returned facts" || bad "promotion result missed category/flag"
+EI=$(get "$BASE/api/explore?query=produk%20mana%20yang%20stoknya%20menipis%3F&limit=5")
+[[ "$(probe "$EI" 'd["interpretation"]["intent"] == "low_inventory" and d["interpretation"]["product_term"] is None and len(d["page"]["items"]) == 5')" == "True" ]] \
+  && ok "Indonesian inventory question returns live product-store rows" || bad "Indonesian inventory interpretation failed"
+EM=$(get "$BASE/api/explore?query=susu%20stok%20menipis&limit=5")
+[[ "$(probe "$EM" 'd["interpretation"]["product_term"] == "milk" and all("milk" in r["product"].lower() for r in d["page"]["items"])')" == "True" ]] \
+  && ok "Indonesian grocery term resolves to milk products" || bad "Indonesian catalog mapping failed"
+
 info "GET /api/dataset/fingerprint  (frozen-experiment guard)"
 FP=$(get "$BASE/api/dataset/fingerprint")
 FPDAY=$(probe "$FP" 'd["day"]')

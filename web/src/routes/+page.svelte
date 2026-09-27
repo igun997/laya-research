@@ -31,11 +31,13 @@
 	} from '$lib/types';
 
 	import StatusBar from '$lib/components/StatusBar.svelte';
+	import ExplorePanel from '$lib/components/ExplorePanel.svelte';
 	import SearchPanel from '$lib/components/SearchPanel.svelte';
 	import ResultTable from '$lib/components/ResultTable.svelte';
 	import SignalFeed from '$lib/components/SignalFeed.svelte';
 	import OverviewPanel from '$lib/components/OverviewPanel.svelte';
 	import ProductDetail from '$lib/components/ProductDetail.svelte';
+	import LayaPlayground from '$lib/components/LayaPlayground.svelte';
 
 	/* ------------------------------------------------------------ page state */
 
@@ -102,6 +104,14 @@
 	let rollupLag = $state<number | null>(null);
 	let now = $state(Date.now());
 
+	/**
+	 * Monotonic count of accepted live ticks, handed to the explore panel so it can
+	 * refresh its SQL layer on a throttle. `tickFrames` is the same number today, but
+	 * it is a display statistic; this one exists purely as a change signal and is
+	 * never reset, so the panel can compare it against its own last-refresh stamp.
+	 */
+	let liveTick = $state(0);
+
 	/* ------------------------------------------------------ non-reactive refs */
 
 	const MAX_SIGNALS = 200;
@@ -145,7 +155,7 @@
 
 	function describeError(cause: unknown): string {
 		if (isApiError(cause)) {
-			return cause.status === 0 ? `network error: ${cause.detail}` : `${cause.status} ${cause.detail}`;
+			return cause.status === 0 ? `galat jaringan: ${cause.detail}` : `${cause.status} ${cause.detail}`;
 		}
 		return cause instanceof Error ? cause.message : String(cause);
 	}
@@ -357,6 +367,7 @@
 
 	function applyTick(frame: TickFrame) {
 		tickFrames += 1;
+		liveTick += 1;
 		lastTick = frame.summary.tick;
 		liveDay = frame.day;
 		sessionRows += frame.summary.rows;
@@ -471,32 +482,42 @@
 />
 
 <main>
-	<section class="strip" aria-label="live activity">
-		<span class="strip-title label">live ticks</span>
+	<ExplorePanel
+		{liveTick}
+		{liveDay}
+		{selectedProductId}
+		{now}
+		onSelectProduct={(productId) => {
+			selectedProductId = productId;
+		}}
+	/>
+
+	<section class="strip" aria-label="Aktivitas langsung">
+		<span class="strip-title label">tick langsung</span>
 		<span class="strip-stat mono">
-			<span class="faint">rows mutated</span> {fmtCompact(sessionRows)}
+			<span class="faint">baris berubah</span> {fmtCompact(sessionRows)}
 		</span>
 		<span class="strip-stat mono">
-			<span class="faint">products touched</span> {fmtInt(touchedProductCount)}
+			<span class="faint">produk terdampak</span> {fmtInt(touchedProductCount)}
 		</span>
 		<span class="strip-stat mono">
-			<span class="faint">stores touched</span> {fmtInt(touchedStoreCount)}
+			<span class="faint">toko terdampak</span> {fmtInt(touchedStoreCount)}
 		</span>
 		<span class="strip-stat mono">
-			<span class="faint">frames</span> {fmtInt(tickFrames)}
+			<span class="faint">pesan</span> {fmtInt(tickFrames)}
 		</span>
 		{#if streamError}
-			<span class="error tiny">stream: {streamError}</span>
+			<span class="error tiny">aliran data: {streamError}</span>
 		{/if}
 		<div class="spark">
 			{#each activity as entry (entry.tick + ':' + entry.at)}
 				<span
 					class="spark-cell"
-					title={`tick ${entry.tick} · ${entry.day} · ${entry.rows} rows · ${entry.products} products · ${entry.stores} stores`}
+					title={`tick ${entry.tick} · ${entry.day} · ${entry.rows} baris · ${entry.products} produk · ${entry.stores} toko`}
 					style={`--h:${Math.max(8, Math.min(100, (entry.rows / 250) * 100)).toFixed(0)}%`}
 				></span>
 			{:else}
-				<span class="faint tiny">waiting for the first tick…</span>
+				<span class="faint tiny">menunggu tick pertama…</span>
 			{/each}
 		</div>
 	</section>
@@ -560,6 +581,8 @@
 				onMarkSeen={markSeen}
 				onRefresh={loadSignals}
 			/>
+
+			<LayaPlayground />
 
 			{#if selectedProductId !== null}
 				<ProductDetail

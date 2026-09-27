@@ -51,6 +51,7 @@ from .laya import (
     render_state,
     states_for,
 )
+from .schemas import PlaygroundIn, PlaygroundOut
 
 router = APIRouter(tags=["laya"])
 
@@ -157,6 +158,40 @@ async def laya_questions() -> dict[str, Any]:
         "category_scope_patterns": list(CATEGORY_SCOPE_PATTERNS),
         "severity_rubric": list(SEVERITY_RUBRIC),
         "noul_threshold": NOUL_THRESHOLD,
+    }
+
+
+@router.post("/laya/playground", response_model=PlaygroundOut)
+async def laya_playground(body: PlaygroundIn) -> dict[str, Any]:
+    """Ask Laya caller-defined typed questions about caller-written free text.
+
+    One CPU forward pass, ~5.5 s p50 here, so this is an explicit *Run* action and
+    never something a keystroke triggers.
+
+    The state and the question schema are both bounded by :class:`PlaygroundIn`
+    (4000 characters of state, 8 questions, 20 options or rubric levels each), and
+    the declared ``type`` is what selects the normalization: an arbitrary question
+    name is flattened as the primitive it declared, not defaulted to ``choice``.
+
+    Availability is reported, never raised: an unreachable or disabled model
+    answers ``{"available": false, "detail": ...}`` with HTTP 200, exactly like
+    ``/api/decide``.
+    """
+    if body.model is not None and body.model not in KNOWN_CHECKPOINTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown checkpoint {body.model!r}; expected one of {list(KNOWN_CHECKPOINTS)}",
+        )
+
+    questions = {
+        name: question.model_dump(exclude_none=True) for name, question in body.questions.items()
+    }
+    result = await laya.predict(body.state, questions=questions, model=body.model)
+
+    return {
+        "state": body.state,
+        "questions": questions,
+        "laya": result,
     }
 
 

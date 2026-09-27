@@ -13,6 +13,10 @@ static WHERE fragments); every value is bound.
 Literal ``%`` characters never appear in a statement: LIKE patterns are built in
 Python and bound as parameters, and the ``pg_trgm`` similarity operator is spelled
 ``similarity(...) >= threshold`` because psycopg uses ``%`` as its escape character.
+
+Three helpers are deliberately public because ``/api/explore`` reuses them rather
+than re-deriving the same bounds: :func:`like_pattern`, :func:`tsquery_is_empty` and
+:func:`fact_page`.
 """
 
 from __future__ import annotations
@@ -54,13 +58,13 @@ DEFAULT_SORT = "day"
 LIKE_ESCAPE = "ESCAPE '\\'"
 
 
-def _like_pattern(value: str) -> str:
+def like_pattern(value: str) -> str:
     """Escape LIKE metacharacters so a user query is matched literally."""
     escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
 
 
-async def _tsquery_is_empty(cur: Any, q: str) -> bool:
+async def tsquery_is_empty(cur: Any, q: str) -> bool:
     """True when ``q`` yields an empty tsquery (blank or punctuation-only input).
 
     Postgres does not raise for ``'!!!'``; it emits a NOTICE and returns an empty
@@ -222,7 +226,7 @@ async def list_products(
                 # No query text: a plain filtered listing by name.
                 return await _product_page(cur, clauses, params, "p.name ASC", limit, offset)
 
-            if not await _tsquery_is_empty(cur, term):
+            if not await tsquery_is_empty(cur, term):
                 text_params = dict(params, q=term)
                 page = await _product_page(
                     cur,
@@ -236,7 +240,7 @@ async def list_products(
                     return page
 
             # --- trigram fallback: ILIKE OR-ed in, ordered by similarity -----
-            fb_params = dict(params, q=term, like=_like_pattern(term), thr=TRIGRAM_THRESHOLD)
+            fb_params = dict(params, q=term, like=like_pattern(term), thr=TRIGRAM_THRESHOLD)
             fb_clauses = clauses + [
                 f"(similarity(p.name, %(q)s) >= %(thr)s OR p.name ILIKE %(like)s {LIKE_ESCAPE})"
             ]
@@ -328,7 +332,7 @@ def _fact_row(row: Any) -> dict[str, Any]:
     }
 
 
-async def _fact_page(
+async def fact_page(
     cur: Any,
     clauses: list[str],
     params: dict[str, Any],
@@ -425,10 +429,10 @@ async def search_facts(
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
             if not term:
-                return await _fact_page(cur, clauses, params, order, limit, offset)
+                return await fact_page(cur, clauses, params, order, limit, offset)
 
-            if not await _tsquery_is_empty(cur, term):
-                page = await _fact_page(
+            if not await tsquery_is_empty(cur, term):
+                page = await fact_page(
                     cur,
                     clauses + ["p.search_tsv @@ websearch_to_tsquery('english', %(q)s)"],
                     dict(params, q=term),
@@ -440,13 +444,13 @@ async def search_facts(
                     return page
 
             # Text fallback over the dimension attributes a shopper would type.
-            like = _like_pattern(term)
+            like = like_pattern(term)
             like_clause = (
                 f"(p.name ILIKE %(like)s {LIKE_ESCAPE}"
                 f" OR p.brand ILIKE %(like)s {LIKE_ESCAPE}"
                 f" OR p.sku ILIKE %(like)s {LIKE_ESCAPE})"
             )
-            return await _fact_page(
+            return await fact_page(
                 cur, clauses + [like_clause], dict(params, like=like), order, limit, offset
             )
 

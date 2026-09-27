@@ -49,8 +49,8 @@ log = logging.getLogger("api.laya")
 #: category-scope rules, so they can never be the correct answer for a single
 #: product state, and offering them would be an unfair question that inflates the
 #: apparent error rate. The engine still evaluates them separately.
-#: Frozen in docs/CONTRACT.md §9 and mirrored in scripts/laya_probe.py, which runs
-#: in the model image and cannot import this module.
+#: Served by GET /api/laya/questions and mirrored in scripts/laya_probe.py,
+#: which runs in the model image and cannot import this module.
 PATTERN_OPTIONS: dict[str, str] = {
     "none": "no decision pattern applies, behaviour is in line with its own baseline",
     "DEMAND_SURGE": "units well above the trailing baseline",
@@ -78,6 +78,9 @@ SEVERITY_RUBRIC: list[str] = ["none", "info", "warn", "critical"]
 QUESTION_PATTERN = "pattern"
 QUESTION_SEVERITY = "severity"
 QUESTION_REORDER = "reorder_now"
+
+#: The three primitives, as ``laya-serve`` names them in a question's ``type``.
+QUESTION_TYPES: tuple[str, ...] = ("choice", "score", "noul")
 
 #: Product-scope patterns only. CATEGORY_DRIFT and PRIVATE_LABEL_GAIN are
 #: category-scope rules: a single product cannot carry their label, so the
@@ -270,10 +273,35 @@ def render_state(state: DecisionState) -> str:
 
 
 def _as_float(value: Any) -> float | None:
-    return float(value) if isinstance(value, (int, float)) else None
+    """``float`` for a real number, else ``None``.
+
+    ``bool`` is rejected: it is an ``int`` subclass, and ``True`` silently becoming
+    ``1.0`` would report a nonsense confidence. Every field this feeds is declared
+    ``float | None`` on the response models, so a stray string from upstream must
+    become ``None`` here rather than a 5xx at serialization time.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
-def normalize_answer(kind: str, raw: Any) -> dict[str, Any]:
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def normalize_answer(
+    kind: str,
+    raw: Any,
+    criteria: list[str] | None = None,
+) -> dict[str, Any]:
     """Flatten one ``answers[name]`` entry into a stable shape.
 
     Written against the response actually returned by ``laya-serve`` 0.3.20, which
@@ -302,15 +330,18 @@ def normalize_answer(kind: str, raw: Any) -> dict[str, Any]:
     for key in ("probabilities", "probs", "distribution"):
         candidate = raw.get(key)
         if isinstance(candidate, dict) and candidate:
-            probabilities = {str(k): float(v) for k, v in candidate.items()}
+            values = {str(k): _as_float(v) for k, v in candidate.items()}
+            probabilities = {k: v for k, v in values.items() if v is not None}
             break
         if isinstance(candidate, list) and candidate:
             probabilities = {
-                str(i): float(v)
+                str(i): value
                 for i, v in enumerate(candidate)
-                if isinstance(v, (int, float))
+                if (value := _as_float(v)) is not None
             }
             break
+    if not probabilities:
+        probabilities = None
 
     legend_raw = raw.get("legend")
     legend = {str(k): str(v) for k, v in legend_raw.items()} if isinstance(legend_raw, dict) else None
@@ -329,15 +360,16 @@ def normalize_answer(kind: str, raw: Any) -> dict[str, Any]:
     decided_index: int | None = None
     level: str | None = None
     if probabilities:
-        try:
-            decided_index = max(probabilities, key=lambda k: probabilities[k])
-            decided_index = int(decided_index)
-        except (TypeError, ValueError):
-            decided_index = None
+        winner = max(probabilities, key=lambda k: probabilities[k])
+        decided_index = _as_int(winner)
 
     if kind == "score":
         if decided_index is not None:
             level = (legend or {}).get(str(decided_index))
+            if level is None and criteria and 0 <= decided_index < len(criteria):
+                # A dynamically declared rubric: the caller's own level names are
+                # the legend when upstream omitted one.
+                level = criteria[decided_index]
             if level is None and 0 <= decided_index < len(SEVERITY_RUBRIC):
                 level = SEVERITY_RUBRIC[decided_index]
         # The rubric level is the decision; the continuous `score` is a position
@@ -345,6 +377,10 @@ def normalize_answer(kind: str, raw: Any) -> dict[str, Any]:
         answer = level if level is not None else answer
     elif kind == "noul":
         answer = raw.get("noul", answer)
+    elif kind == "choice" and answer is None and probabilities:
+        # A choice whose label came back under an unexpected key: the winning
+        # probability's key *is* the option name for a choice question.
+        answer = max(probabilities, key=lambda k: probabilities[k])
 
     return {
         "answer": answer,
@@ -425,14 +461,20 @@ class LayaClient:
             }
 
         answers = {
-            name: normalize_answer(kind_for(name), value)
+            name: normalize_answer(kind_for(name, questions), value, criteria_for(name, questions))
             for name, value in raw_answers.items()
         }
+        routing = body.get("routing")
+        if not isinstance(routing, dict):
+            # Upstream has been seen to return a bare model name here. The routing
+            # block is advisory metadata, so an unexpected shape becomes a detail
+            # rather than a serialization failure on an otherwise good answer.
+            routing = {"model": str(routing)} if isinstance(routing, str) else None
         return {
             "available": True,
             "answers": answers,
-            "routing": body.get("routing"),
-            "latency_ms": latency_ms,
+            "routing": routing,
+            "latency_ms": _as_float(latency_ms),
             "raw": body if answers == {} else None,
         }
 
@@ -465,16 +507,43 @@ class LayaClient:
             }
 
 
-def kind_for(question_name: str) -> str:
-    """Which primitive a question belongs to, by name."""
+def kind_for(question_name: str, questions: dict[str, Any] | None = None) -> str:
+    """Which primitive a question belongs to.
+
+    A **declared type wins**: callers that pass an arbitrary question set (the
+    free-text playground) name their own questions, so normalizing by name alone
+    would silently flatten every unknown question into ``choice`` and drop the
+    rubric level of a ``score`` or the probability of a ``noul``. Only when the
+    question set does not declare a usable type do we fall back to the three frozen
+    question names, and then to ``choice``.
+    """
+    declared = ((questions or {}).get(question_name) or {}).get("type")
+    if isinstance(declared, str) and declared in QUESTION_TYPES:
+        return declared
     if question_name == QUESTION_PATTERN:
         return "choice"
     if question_name == QUESTION_SEVERITY:
         return "score"
     if question_name == QUESTION_REORDER:
         return "noul"
-    # Unknown question: guess from the name so an added question still renders.
+    # Unknown question with no declared type: guess from the name so an added
+    # question still renders.
     return "choice"
+
+
+def criteria_for(question_name: str, questions: dict[str, Any] | None = None) -> list[str] | None:
+    """Ordered option names of a question, when it has any.
+
+    ``choice`` criteria are a mapping (option -> description) and ``score``
+    criteria are already an ordered list of rubric levels. The order is what makes
+    an index from a missing ``legend`` recoverable, so it is preserved.
+    """
+    criteria = ((questions or {}).get(question_name) or {}).get("criteria")
+    if isinstance(criteria, dict):
+        return [str(key) for key in criteria]
+    if isinstance(criteria, list):
+        return [str(item) for item in criteria]
+    return None
 
 
 laya = LayaClient()
