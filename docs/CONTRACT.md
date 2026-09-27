@@ -306,8 +306,174 @@ Edge: `http://localhost:${LAYA_HTTP_PORT:-8090}`.
 Compose healthchecks (`db`, `api`, `web`) and `service_completed_successfully` for `generator`
 are already declared — services must expose the endpoints those checks hit.
 
+`laya` is an additional service (see §9). `api` depends on it with `service_started`, not
+`service_healthy`, because the model takes minutes to warm on first boot and the dashboard must come
+up regardless. The model cache lives in the `layamodels` named volume.
+
 Python images: `python:3.12-slim`, deps pinned in `requirements.txt`, non-root user.
 Web image: multi-stage `node:22-alpine`; runtime runs `node build` with `PORT=3000 HOST=0.0.0.0`.
 
 Pinned Python deps: `psycopg[binary]==3.2.3`, `fastapi==0.115.6`, `uvicorn[standard]==0.34.0`,
 `pydantic==2.10.4`, `numpy==2.2.1` (generator only).
+
+---
+
+## 9. `laya` — the decision model service
+
+The repository runs **Laya** (Convai Innovations, Apache 2.0), a non-autoregressive System 1
+decision model: 421M parameters on a ModernBERT-large backbone, returning typed answers with
+probability distributions instead of generated text.
+
+`laya/` builds an image whose entrypoint is `laya-serve`, which exposes `POST /v1/systemone` — the
+same request and response shape TypeSafe Jev serves. The API therefore talks to a decision model
+over HTTP and never imports torch.
+
+| | |
+|---|---|
+| image | `laya/Dockerfile`, `python:3.12-slim`, CPU-only torch from PyTorch's own index |
+| entrypoint | `laya-serve` |
+| internal port | `8000`, **never published** — the server binds `0.0.0.0` with no authentication unless `LAYA_API_KEY` is set |
+| cache | `/models` (`HF_HOME`), named volume `layamodels`, so rebuilds do not re-download ~800 MB |
+| healthcheck | `GET /health` (documented upstream, unauthenticated), 900 s `start_period` |
+| env | `LAYA_MODELS` (the **preload list only**), `LAYA_OMP_THREADS`, `LAYA_DEVICE=cpu`, `LAYA_PRELOAD=1` |
+
+### 9.1 Thread pinning is a hard requirement
+
+Upstream's `BENCHMARKS.md` records torch's per-vCPU defaults giving a **9,396 ms** p50 on a
+single-forward-pass model, versus **783 ms** with intra-op threads pinned to the physical core count
+and inter-op pinned to 1. Measured here on an i5-10310U (4 physical cores):
+
+| configuration | p50 for 3 questions |
+|---|---|
+| `Router(preload=True)`, torch defaults | **18,159 ms** |
+| single checkpoint, intra-op 4 / inter-op 1 | 8,025 ms |
+| `laya-serve` over HTTP, `OMP_NUM_THREADS=4` | 7,833 ms |
+
+`laya-serve` pins inter-op to 1 itself, so the service needs no wrapper. `LAYA_OMP_THREADS` must stay
+at the physical core count; setting it to the logical count makes it slower.
+
+Preloading every checkpoint also peaked at 9.3 GiB upstream, so `LAYA_MODELS` selects one.
+
+### 9.2 The three typed questions
+
+One question per primitive, all three answered in a **single forward pass**. Frozen here and served
+by `GET /api/laya/questions`; the benchmark fetches that rather than importing the module, so the
+option dictionaries cannot drift.
+
+| question | primitive | options | label source |
+|---|---|---|---|
+| `pattern` | `choice` | `none` + the 7 product-scope patterns (8 options) | top-severity rule hit, else `none` |
+| `severity` | `score` | `none`, `info`, `warn`, `critical` | highest rule severity |
+| `reorder_now` | `noul` | P(true) | `STOCKOUT_RISK` at `warn` or `critical` |
+
+`CATEGORY_DRIFT` and `PRIVATE_LABEL_GAIN` are **excluded** from `pattern`: they are category-scope,
+so they can never be correct for a single product state, and offering them would be an unfair
+question. Option counts stay under the ~20 the upstream docs warn about.
+
+### 9.3 Response normalization
+
+Observed from `laya-serve` 0.3.20 rather than assumed:
+
+```
+choice -> {"choice": "STOCKOUT_RISK", "probabilities": {opt: p},
+           "confidence": 0.0585, "answer_confidence": 0.1869}
+score  -> {"score": 0.7311, "legend": {"0": "none", ...},
+           "probabilities": {"0": 0.451, ...}, "answer_confidence": 0.451}
+noul   -> {"noul": 0.1558, "confidence": 0.8442, "answer_confidence": 0.8442}
+```
+
+**`answer_confidence` is the probability of the chosen answer and is the field to calibrate on.**
+`confidence` is a different, smaller quantity for `choice` and `score` (0.0585 against 0.1869 on the
+same answer). Using `confidence` for calibration would understate confidence severely.
+
+For `score`, the decision is the **argmax of the distribution** and `legend` maps that index to a
+level name; the continuous `score` value is a position on the rubric, not a level.
+
+### 9.4 HTTP surface
+
+```
+GET /api/laya/health      -> probe passthrough + client config
+GET /api/laya/questions   -> the frozen schema, option dictionaries, `noul` threshold
+GET /api/dataset/fingerprint?day=  -> content hash of one day of facts (see §9.5)
+GET /api/decide/{product_id}?day=&model=
+```
+
+`/api/decide` runs **one CPU forward pass**, measured at 6.3 s p50 and 15.5 s max here, and returns:
+
+- `state` — the numbers the decision turns on, plus `state_text`, the exact rendering sent to the model
+- `laya` — `{available, answers{pattern,severity,reorder_now}, routing, latency_ms}`
+- `rules` — `{pattern, severity, severity_index, reorder, patterns[], hits[]}`
+- `agreement` — three booleans and both sides
+
+Agreement definitions, which are the honest part of the endpoint:
+
+| key | true when |
+|---|---|
+| `pattern` | Laya's option equals the rule engine's top-severity product pattern (or `none`) |
+| `severity` | Laya's rubric level equals the engine's highest severity |
+| `reorder` | Laya's P(true) at or above 0.5 equals whether `STOCKOUT_RISK` fired at warn or critical |
+
+A product-day can fire several rules at once, so the engine's verdict is reduced to the highest
+severity, ties broken by score. `api/app/decide.py:rule_verdict` and
+`scripts/bench_laya.py:reduce_rule_labels` implement that reduction and **must stay identical**.
+
+Laya is advisory throughout: `LAYA_ENABLED=0`, an unreachable container, or a timeout yields
+`{"available": false, "detail": ...}` and the dashboard keeps working.
+
+### 9.5 Benchmark
+
+`scripts/bench_laya.py` scores both decision layers on the same states. The labels come from the rule
+engine, so it measures **agreement with a threshold expert**, never correctness; the report states
+this and prints a trivial baseline beside every metric.
+
+**`sim` must be stopped during a run, and the harness enforces it.** It mutates the newest dataset
+day every 4 seconds, so labels scanned at the start would drift from states decided minutes later, and
+the target day is exactly the day being labelled. `make bench` stops and restarts it. Results stream
+to `bench/*.jsonl` as they arrive and resume on re-run.
+
+`sim` being stopped is necessary but not sufficient, because it is easy to restart it between two runs
+and silently compare two different datasets. So:
+
+| guard | behaviour |
+|---|---|
+| `GET /api/dataset/fingerprint?day=` | content hash (md5 over every mutated column of every fact row for that day). Deliberately a full hash, not a count or sum: `sim` mutates in place, so counts and sums barely move while every value under them does. |
+| `scripts/fingerprint.py` | prints it, `--watch N` shows it moving, `--expect` asserts it |
+| `bench_laya.py` | records it **before and after** a run and aborts if it changed, so a mixed run cannot be scored |
+| report field `dataset_fingerprint` | carried into every report |
+| `bench_compare.py` | refuses to publish a table whose reports disagree on the fingerprint, and warns when it is absent |
+
+Sample the fingerprint with `sim` running and you get a different value every time; with it stopped you
+get the same value indefinitely. That is the check that the two checkpoints were scored on identical
+states, and it is asserted rather than assumed.
+
+### 9.6 Selecting the checkpoint
+
+**`laya-serve` does not read any `LAYA_MODEL*` variable for model selection.** `LAYA_MODELS` is the
+preload list and nothing else, and there is no `LAYA_MODEL` in its configuration table. The only
+mechanism is a **request-level `model` field**:
+
+```json
+{"state": "...", "questions": {...}, "model": "typed-decisions"}
+```
+
+Behaviour, read from `laya/serve.py` and confirmed empirically: the field is honoured **only** when it
+names a known checkpoint (`english`, `multilingual`, `typed-decisions`), so a client can pass a Jev
+model id and still get the Router's own choice. An unrecognised value is ignored **silently**.
+
+That silent fallback is the whole hazard. Two benchmark runs labelled `typed-decisions` measured
+`english` and produced byte-identical confusion matrices before this was understood, because
+`LAYA_MODELS=typed-decisions` did preload it while the Router kept sending English text to `english`.
+
+Consequences, all enforced in code:
+
+| where | rule |
+|---|---|
+| `api/app/laya.py` | `KNOWN_CHECKPOINTS`; the client sends `model` only when it is set, and callers must verify `routing.model` on the response rather than trust the request |
+| `api/app/decide.py` | `?model=` is validated against `KNOWN_CHECKPOINTS` and rejected with **422**, never forwarded blindly |
+| `api` settings | `LAYA_CHECKPOINT` is the checkpoint every decide call pins; empty means let the Router choose |
+| `scripts/bench_laya.py` | sends `model` on every call, fires a **canary request** before the run, aborts in seconds if `routing.model` differs from the requested checkpoint, and records `routed_model` per sample |
+| `docker-compose.yml` | `LAYA_CHECKPOINT` (api) and `LAYA_MODELS` (preload) are separate variables on purpose |
+
+Preloading a checkpoint that is never selected wastes ~800 MB of RAM and several seconds of startup,
+so `LAYA_MODELS` should name the same checkpoint as `LAYA_CHECKPOINT` unless a run needs to switch
+between them mid-session.

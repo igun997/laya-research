@@ -170,12 +170,12 @@
 	}
 
 	/* Debounce: 250 ms after the last keystroke; a tick never triggers this. */
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	let debounceTimer: number | undefined;
 
 	function scheduleSearch() {
-		if (debounceTimer !== null) clearTimeout(debounceTimer);
+		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			debounceTimer = null;
+			debounceTimer = undefined;
 			void runSearch(0);
 		}, 250);
 	}
@@ -446,7 +446,7 @@
 		return () => {
 			clearInterval(clock);
 			clearInterval(health);
-			if (debounceTimer !== null) clearTimeout(debounceTimer);
+			if (debounceTimer !== undefined) clearTimeout(debounceTimer);
 			searchAbort?.abort();
 			seedAbort?.abort();
 			controller.abort();

@@ -97,6 +97,15 @@ FIRST=$(probe "$S" 'sorted(d["items"], key=lambda r: -r["revenue"])[0]["revenue"
 [[ -n "$(probe "$S" 'd["items"][0]["store_name"]')" ]] && ok "store joined" || bad "store_name missing"
 [[ -n "$(probe "$S" 'd["items"][0]["margin_pct"]')" ]] && ok "margin_pct present" || bad "margin_pct missing"
 
+info "GET /api/dataset/fingerprint  (frozen-experiment guard)"
+FP=$(get "$BASE/api/dataset/fingerprint")
+FPDAY=$(probe "$FP" 'd["day"]')
+FPN=$(probe "$FP" 'd["facts"]')
+FPHASH=$(probe "$FP" 'd["fingerprint"]')
+echo "  $FPDAY facts=$FPN md5=$FPHASH"
+[[ "${#FPHASH}" == "32" ]] && ok "md5 fingerprint issued" || bad "fingerprint malformed :: $FP"
+[[ "$FPN" =~ ^[0-9]+$ && "$FPN" -gt 0 ]] && ok "fingerprint covers $FPN facts" || bad "no facts hashed"
+
 info "GET /api/overview"
 O=$(get "$BASE/api/overview?days=14")
 DAYS=$(probe "$O" 'len(d["days"])')
@@ -135,6 +144,47 @@ PID=$(probe "$P" 'd["items"][0]["product_id"]')
 SER=$(get "$BASE/api/products/$PID/series?days=30")
 [[ "$(probe "$SER" 'len(d["series"])')" -gt 0 ]] && ok "product $PID series has $(probe "$SER" 'len(d["series"])') points" || bad "empty product series"
 
+info "GET /api/laya/health  (decision model)"
+LH=$(get "$BASE/api/laya/health")
+[[ "$(probe "$LH" 'd["enabled"]')" == "True" ]] && ok "laya integration enabled" || bad "laya disabled :: $LH"
+if [[ "$(probe "$LH" 'd["available"]')" == "True" ]]; then
+  ok "model loaded: $(probe "$LH" 'd["detail"]["loaded"]') on $(probe "$LH" 'd["detail"]["device"]')"
+  LAYA_UP=1
+else
+  printf '  \033[33mNOTE\033[0m model not warm yet, skipping the decide checks: %s\n' "$(head -c 160 <<<"$LH")"
+  LAYA_UP=0
+fi
+
+info "GET /api/laya/questions  (frozen question schema)"
+Q=$(get "$BASE/api/laya/questions")
+NO=$(probe "$Q" 'len(d["pattern_options"])')
+[[ "$NO" == "8" ]] && ok "8 choice options (none + 7 product-scope patterns)" || bad "expected 8 choice options, got $NO"
+[[ "$(probe "$Q" 'd["category_scope_patterns"] == ["CATEGORY_DRIFT", "PRIVATE_LABEL_GAIN"]')" == "True" ]] \
+  && ok "category-scope patterns correctly excluded from a product question" \
+  || bad "category-scope patterns leaked into the option set"
+[[ "$(probe "$Q" 'd["severity_rubric"] == ["none", "info", "warn", "critical"]')" == "True" ]] \
+  && ok "severity rubric is ordinal and ordered" || bad "severity rubric wrong"
+[[ "$(probe "$Q" 'sorted(d["questions"])')" == "['pattern', 'reorder_now', 'severity']" ]] \
+  && ok "one question per primitive: choice, score, noul" || bad "question set incomplete"
+
+if [[ "$LAYA_UP" == "1" ]]; then
+  info "GET /api/decide/{id}  (one CPU forward pass, ~6-15s)"
+  D=$(curl -fsS --max-time 180 "$BASE/api/decide/$PID")
+  [[ "$(probe "$D" 'd["laya"]["available"]')" == "True" ]] && ok "model answered" || bad "model reported unavailable :: $(head -c 200 <<<"$D")"
+  [[ "$(probe "$D" 'sorted(d["laya"]["answers"])')" == "['pattern', 'reorder_now', 'severity']" ]] \
+    && ok "all three primitives answered in one pass" || bad "missing primitives"
+  [[ "$(probe "$D" 'all(a.get("probabilities") for k,a in d["laya"]["answers"].items() if k != "reorder_now")')" == "True" ]] \
+    && ok "choice and score returned probability distributions" || bad "distributions missing"
+  [[ "$(probe "$D" '0.0 <= d["laya"]["answers"]["reorder_now"]["answer"] <= 1.0')" == "True" ]] \
+    && ok "noul returned a probability in [0,1]" || bad "noul out of range"
+  [[ "$(probe "$D" '{"pattern","severity","reorder"} <= set(d["agreement"])')" == "True" ]] \
+    && ok "agreement reported for all three questions" || bad "agreement block incomplete: $(probe "$D" 'sorted(d["agreement"])')"
+  [[ "$(probe "$D" 'len(d["state_text"]) > 100')" == "True" ]] \
+    && ok "state rendering returned for inspection" || bad "state_text missing"
+  echo "  laya=$(probe "$D" 'd["agreement"]["laya"]')"
+  echo "  rules=$(probe "$D" 'd["agreement"]["rules"]')"
+fi
+
 info "web through the edge"
 WCODE=$(curl -s -o /tmp/laya_web.html -w '%{http_code}' --max-time 20 "$BASE/")
 [[ "$WCODE" == "200" ]] && ok "GET / -> 200" || bad "GET / -> $WCODE"
@@ -142,24 +192,27 @@ grep -qi 'sveltekit' /tmp/laya_web.html && ok "SvelteKit app shell served" || ba
 
 if [[ "$FAST" == "0" ]]; then
   info "realtime: websocket + live mutation"
-  SNIPE=$(curl -fsS --max-time 20 "$BASE/api/search?limit=1&sort=revenue" | python3 -c '
-import json,sys
-d=json.load(sys.stdin)["items"][0]
-print(d["store_id"], d["product_id"], d["units_sold"], d["price"])')
-  read -r SID PID2 UNITS0 PRICE0 <<<"$SNIPE"
-  echo "  watching store=$SID product=$PID2 units=$UNITS0 price=$PRICE0"
+  # Proof that the data actually moved, chosen so it cannot pass by luck. The
+  # simulator rewrites LAYA_TICK_ROWS rows every LAYA_TICK_SECONDS, so the
+  # aggregate over the newest day must change. An earlier version watched a single
+  # fact row, which failed to change on some runs purely because 250 of 336,000
+  # rows per tick rarely include one particular row.
+  DAY=$(probe "$M" 'd["dataset"]["day_max"]')
+  SCOPE="date_from=$DAY&date_to=$DAY&limit=1"
+  U0=$(probe "$(curl -fsS --max-time 30 "$BASE/api/search?$SCOPE")" 'd["totals"]["units"]')
   WS=$(LAYA_WS="ws://localhost:${PORT}/api/stream" python3 "$ROOT/scripts/ws_probe.py" --seconds 22 2>&1)
   echo "$WS" | grep -q '^hello' && ok "received hello frame" || bad "no hello frame"
   echo "$WS" | grep -q '^tick' && ok "received tick frame(s): $(grep -c '^tick' <<<"$WS")" || bad "no tick frame — sim not publishing"
   if echo "$WS" | grep -q '  SIG'; then ok "received live signal frame(s): $(grep -c '  SIG' <<<"$WS")"; else
     echo "  \033[33mNOTE\033[0m no signal frame in the 22s window (tick rate/thresholds); scan still proved the engine"
   fi
-  AFTER=$(curl -fsS --max-time 20 "$BASE/api/search?store_id=$SID&product_id=$PID2&limit=1" | python3 -c '
-import json,sys
-i=json.load(sys.stdin)["items"]
-print((i[0]["units_sold"], i[0]["price"]) if i else ("?","?"))')
-  echo "  after: units/price = $AFTER  (before: $UNITS0 $PRICE0)"
-  [[ "$AFTER" != "('?'"* ]] && ok "row still readable" || bad "row vanished"
+  U1=$(probe "$(curl -fsS --max-time 30 "$BASE/api/search?$SCOPE")" 'd["totals"]["units"]')
+  echo "  units on $DAY: $U0 -> $U1"
+  if [[ "$U0" =~ ^[0-9]+$ && "$U1" =~ ^[0-9]+$ && "$U0" != "$U1" ]]; then
+    ok "facts actually changed while watching (not just frames received)"
+  else
+    bad "aggregate over $DAY did not move: $U0 -> $U1"
+  fi
 fi
 
 info "results"

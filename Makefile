@@ -6,7 +6,8 @@ PGDB    ?= laya
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down reset build logs ps gen-force psql size health scan stream
+.PHONY: help up down reset build logs ps gen-force psql size health scan stream \
+        laya-health laya-questions decide probe bench bench-report fingerprint
 
 help: ## list targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -57,3 +58,30 @@ scan: ## full rule scan, persisted, with a readable report
 
 stream: ## tail the realtime websocket for 25s
 	@LAYA_WS=ws://localhost:$(PORT)/api/stream python3 scripts/ws_probe.py --seconds 25
+
+laya-health: ## is the decision model loaded and reachable
+	@curl -fsS localhost:$(PORT)/api/laya/health | python3 -m json.tool
+
+laya-questions: ## the typed question schema sent to the model
+	@curl -fsS localhost:$(PORT)/api/laya/questions | python3 -m json.tool
+
+decide: ## decide one product-day with Laya and with the rules (PID=...)
+	@test -n "$(PID)" || { echo "usage: make decide PID=2177"; exit 1; }
+	@curl -fsS "localhost:$(PORT)/api/decide/$(PID)" | python3 scripts/decide_report.py
+
+probe: ## measure Laya latency inside the model image
+	docker run --rm -v laya-research_layamodels:/models -v "$(PWD)/scripts:/app/scripts:ro" \
+	  --entrypoint python laya-research-laya:dev /app/scripts/laya_probe.py --mode sdk-pinned
+
+bench: ## benchmark Laya vs the rules (LIMIT=150 CHECKPOINT=english)
+	@echo "stopping sim so labels and states cannot drift during the run"
+	-$(COMPOSE) stop sim
+	python3 scripts/bench_laya.py --limit $(or $(LIMIT),150) --checkpoint $(or $(CHECKPOINT),english) \
+	  $(if $(FRESH),--fresh,)
+	-$(COMPOSE) start sim
+
+fingerprint: ## content hash of the newest day of facts (detects a moving dataset)
+	@python3 scripts/fingerprint.py --watch 3
+
+bench-report: ## reprint the newest benchmark report from disk
+	@ls -t bench/*.md 2>/dev/null | head -1 | xargs -r cat

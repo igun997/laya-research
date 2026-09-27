@@ -15,7 +15,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import overview, rules, search, stream
+from . import decide, overview, rules, search, stream
 from .db import close_pool, open_pool, pool
 from .overview import dataset_summary
 from .schemas import PatternsOut, ScanIn, ScanOut, SeenIn, SeenOut, SignalsOut
@@ -262,5 +262,6 @@ async def signals_seen(body: SeenIn) -> dict[str, Any]:
 api.include_router(search.router)
 api.include_router(overview.router)
 api.include_router(stream.router)
+api.include_router(decide.router)
 
 app.include_router(api, prefix=API_PREFIX)

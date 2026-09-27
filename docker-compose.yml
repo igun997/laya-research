@@ -52,17 +52,63 @@ services:
         condition: service_healthy
     restart: "no"
 
+  laya:
+    build: ./laya
+    environment:
+      # LAYA_MODELS is the PRELOAD list only. It does not select the answering
+      # model: laya-serve does not read any LAYA_MODEL* variable for model
+      # selection. The answering checkpoint is a request-level `model` field, which
+      # api sends from LAYA_CHECKPOINT. A benchmark labelled typed-decisions
+      # silently measured english twice before this was understood.
+      LAYA_MODELS: ${LAYA_MODELS:-english}
+      LAYA_DEVICE: cpu
+      OMP_NUM_THREADS: ${LAYA_OMP_THREADS:-4}
+      LAYA_THREADS: ${LAYA_OMP_THREADS:-4}
+      LAYA_PRELOAD: "1"
+      LAYA_LOG_LEVEL: warning
+      HF_HOME: /models
+    volumes:
+      # Checkpoints persist here so a rebuild never re-downloads ~800 MB.
+      - layamodels:/models
+    # No published port on purpose. laya-serve binds 0.0.0.0 without
+    # authentication unless LAYA_API_KEY is set, so exposing it would put an open
+    # model endpoint on the host network.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10).status == 200 else 1)"
+      interval: 15s
+      timeout: 15s
+      # First boot downloads a checkpoint and builds it, which has taken over 10
+      # minutes on this host. Start slowly, fail late.
+      start_period: 900s
+      retries: 40
+    restart: unless-stopped
+
   api:
     build: ./api
     environment:
       <<: *db-url
       LAYA_TICK_CHANNEL: laya_events
       LAYA_ORIGINS: "*"
+      LAYA_URL: http://laya:8000
+      LAYA_TIMEOUT: ${LAYA_TIMEOUT:-120}
+      LAYA_ENABLED: ${LAYA_ENABLED:-1}
+      # The checkpoint every /api/decide call pins via the request `model` field.
+      # Empty lets the Router choose, which sends English text to `english`.
+      LAYA_CHECKPOINT: ${LAYA_CHECKPOINT:-english}
     depends_on:
       db:
         condition: service_healthy
       generator:
         condition: service_completed_successfully
+      laya:
+        # started, not healthy: the model takes minutes to warm on first boot and
+        # the dashboard must come up regardless. The Laya panel reports its own
+        # availability.
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -123,3 +169,4 @@ services:
 
 volumes:
   dbdata:
+  layamodels:

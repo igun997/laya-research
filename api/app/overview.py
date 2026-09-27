@@ -11,7 +11,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from . import rules
 from .db import now_iso, pool
@@ -195,6 +195,55 @@ FROM mv_product_day h
 WHERE h.day >= %(from_day)s AND h.day <= %(to_day)s
 GROUP BY h.product_id
 """
+
+
+_FINGERPRINT_SQL = """
+SELECT
+    count(*)::bigint AS facts,
+    md5(string_agg(h, '' ORDER BY store_id, product_id)) AS fingerprint
+FROM (
+    SELECT
+        store_id,
+        product_id,
+        md5(
+            price::text || ':' || unit_cost::text || ':' || units_sold::text || ':' ||
+            inventory::text || ':' || on_order::text || ':' || promo_flag::text
+        ) AS h
+    FROM market_facts
+    WHERE day = %s
+) rows
+"""
+
+
+@router.get("/dataset/fingerprint")
+async def dataset_fingerprint(
+    day: date | None = Query(default=None, description="defaults to the newest dataset day")
+) -> dict[str, Any]:
+    """A content hash of one day of facts, so a frozen experiment is verifiable.
+
+    Anything that compares two models on "the same states" is only trustworthy if
+    it can prove the states did not move underneath it. `sim` rewrites rows every
+    few seconds, so a benchmark run must be taken with `sim` stopped, and this
+    endpoint makes that checkable instead of a matter of discipline: record the
+    fingerprint before and after a run, and refuse to compare reports whose
+    fingerprints differ.
+
+    Deliberately a full content hash rather than a cheaper count or sum, because
+    `sim` mutates in place: row counts and row sums barely move while every value
+    underneath them does.
+    """
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            target = await rules.resolve_target_day(cur, day)
+            if target is None:
+                raise HTTPException(status_code=404, detail="dataset is empty")
+            await cur.execute(_FINGERPRINT_SQL, (target,))
+            row = await cur.fetchone() or {}
+    return {
+        "day": target.isoformat(),
+        "facts": int(row.get("facts") or 0),
+        "fingerprint": row.get("fingerprint"),
+    }
 
 
 @router.get("/overview", response_model=OverviewOut)

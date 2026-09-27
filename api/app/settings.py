@@ -50,6 +50,19 @@ class Settings:
     pool_max_size: int
     pool_timeout: float
     heartbeat_seconds: float
+    # Laya is a separate container running `laya-serve`, which speaks TypeSafe
+    # Jev's POST /v1/systemone shape. CPU inference on this host is slow (~1-2 s
+    # per question), so the timeout is generous and the whole integration is
+    # advisory: the dashboard must keep working when Laya is absent.
+    laya_url: str
+    laya_timeout: float
+    laya_enabled: bool
+    # Which Laya checkpoint should answer. Sent as the request-level `model` field,
+    # which is the ONLY way to pin a checkpoint through `laya-serve`: it does not
+    # read any LAYA_MODEL* variable for model selection, and `LAYA_MODELS` only
+    # controls the preload list. Empty means "let the Router choose", which sends
+    # English text to the `english` checkpoint.
+    laya_checkpoint: str
 
 
 def _load() -> Settings:
@@ -68,6 +81,10 @@ def _load() -> Settings:
         pool_max_size=_int("LAYA_POOL_MAX", 6),
         pool_timeout=_float("LAYA_POOL_TIMEOUT", 15.0),
         heartbeat_seconds=_float("LAYA_WS_HEARTBEAT_SECONDS", 20.0),
+        laya_url=_str("LAYA_URL", "http://laya:8000"),
+        laya_timeout=_float("LAYA_TIMEOUT", 120.0),
+        laya_enabled=_str("LAYA_ENABLED", "1").lower() not in ("0", "false", "no", "off"),
+        laya_checkpoint=_str("LAYA_CHECKPOINT", ""),
     )
 
 

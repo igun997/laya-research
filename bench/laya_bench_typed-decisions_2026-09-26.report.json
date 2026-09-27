@@ -1,0 +1,203 @@
+{
+  "checkpoint": "typed-decisions",
+  "routed_model": [
+    "typed-decisions"
+  ],
+  "day": "2026-09-26",
+  "sample_mode": "stratified",
+  "n": 150,
+  "dataset_facts": 7056000,
+  "label_source": "api/app/rules.py threshold rules (agreement, not ground truth)",
+  "class_balance": {
+    "pattern": {
+      "DEMAND_SURGE": 34,
+      "MARGIN_SQUEEZE": 34,
+      "PRICE_SPIKE": 34,
+      "none": 34,
+      "DEMAND_COLLAPSE": 9,
+      "PRICE_CUT_UNANSWERED": 3,
+      "STOCKOUT_RISK": 2
+    },
+    "severity": {
+      "critical": 64,
+      "warn": 52,
+      "none": 34
+    },
+    "reorder_true": 2
+  },
+  "pattern": {
+    "accuracy": 0.02666666666666667,
+    "baseline_majority": 0.22666666666666666,
+    "baseline_majority_class": "DEMAND_SURGE",
+    "baseline_random": 0.125,
+    "macro_f1": 0.02222222222222222,
+    "soft_accuracy": 0.1225,
+    "multiclass_brier": 0.8967498872000003,
+    "confusion": {
+      "none": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 1,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 3,
+        "PROMO_INEFFECTIVE": 30
+      },
+      "DEMAND_SURGE": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 3,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 1,
+        "PROMO_INEFFECTIVE": 30
+      },
+      "DEMAND_COLLAPSE": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 1,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 0,
+        "PROMO_INEFFECTIVE": 8
+      },
+      "PRICE_SPIKE": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 4,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 2,
+        "PROMO_INEFFECTIVE": 28
+      },
+      "PRICE_CUT_UNANSWERED": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 0,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 0,
+        "PROMO_INEFFECTIVE": 3
+      },
+      "MARGIN_SQUEEZE": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 1,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 2,
+        "PROMO_INEFFECTIVE": 31
+      },
+      "STOCKOUT_RISK": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 1,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 0,
+        "PROMO_INEFFECTIVE": 1
+      },
+      "PROMO_INEFFECTIVE": {
+        "none": 0,
+        "DEMAND_SURGE": 0,
+        "DEMAND_COLLAPSE": 0,
+        "PRICE_SPIKE": 0,
+        "PRICE_CUT_UNANSWERED": 0,
+        "MARGIN_SQUEEZE": 0,
+        "STOCKOUT_RISK": 0,
+        "PROMO_INEFFECTIVE": 0
+      }
+    },
+    "accuracy_known": 0.02666666666666667
+  },
+  "severity": {
+    "accuracy": 0.04,
+    "baseline_majority": 0.4266666666666667,
+    "baseline_majority_class": "critical",
+    "macro_f1": 0.046875,
+    "soft_accuracy": 0.0,
+    "mae_levels": 1.4066666666666667,
+    "confusion": {
+      "none": {
+        "none": 0,
+        "info": 31,
+        "warn": 3,
+        "critical": 0
+      },
+      "info": {
+        "none": 0,
+        "info": 0,
+        "warn": 0,
+        "critical": 0
+      },
+      "warn": {
+        "none": 1,
+        "info": 45,
+        "warn": 6,
+        "critical": 0
+      },
+      "critical": {
+        "none": 2,
+        "info": 59,
+        "warn": 3,
+        "critical": 0
+      }
+    }
+  },
+  "reorder": {
+    "brier": 0.13898209106666667,
+    "baseline_brier_all_zero": 0.013333333333333334,
+    "baseline_brier_base_rate": 0.013155555555555557,
+    "log_loss": 0.4656927766758425,
+    "auc": 0.668918918918919,
+    "base_rate_true": 0.013333333333333334,
+    "mean_probability": 0.367708,
+    "ece": 0.3543746666666666,
+    "reliability": [
+      {
+        "bin": "0.2-0.3",
+        "n": 2,
+        "mean_probability": 0.2993,
+        "observed_rate": 0.0,
+        "gap": -0.2993
+      },
+      {
+        "bin": "0.3-0.4",
+        "n": 138,
+        "mean_probability": 0.3654,
+        "observed_rate": 0.0145,
+        "gap": -0.3509
+      },
+      {
+        "bin": "0.4-0.5",
+        "n": 10,
+        "mean_probability": 0.4135,
+        "observed_rate": 0.0,
+        "gap": -0.4135
+      }
+    ],
+    "accuracy_at_half": 0.9866666666666667
+  },
+  "latency_ms": {
+    "n": 150,
+    "min": 4463.4591180001735,
+    "p50": 5676.481350999893,
+    "p95": 7640.533775998847,
+    "max": 8128.604176001318
+  },
+  "agreement_rates": {
+    "pattern": 0.02666666666666667,
+    "severity": 0.04,
+    "reorder": 0.9866666666666667
+  },
+  "raw_file": "/home/nst/WebstormProjects/laya-research/bench/laya_bench_typed-decisions_2026-09-26.jsonl",
+  "dataset_fingerprint": "4a85672eaca868e58785e85a7aa69368",
+  "dataset_facts_on_day": 336000
+}

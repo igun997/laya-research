@@ -8,7 +8,9 @@
 
 import type {
 	CategorySeriesResponse,
+	DecideResponse,
 	HealthResponse,
+	LayaHealthResponse,
 	MetaResponse,
 	OverviewResponse,
 	PatternsResponse,
@@ -93,6 +95,12 @@ interface RequestOptions {
 	method?: 'GET' | 'POST';
 	body?: unknown;
 	signal?: AbortSignal;
+	/**
+	 * Abort the request after this many milliseconds. Needed because a Laya
+	 * forward pass on CPU takes 8 to 12 seconds, far longer than any other call,
+	 * and a hung model must not leave a spinner running forever.
+	 */
+	timeoutMs?: number;
 }
 
 function isAbort(error: unknown): boolean {
@@ -128,6 +136,23 @@ async function request<T>(path: string, query?: Record<string, QueryValue>, opti
 		init.body = JSON.stringify(options.body);
 	}
 
+	// A caller-supplied signal still wins: we only add a deadline, we never remove
+	// the caller's ability to abort early.
+	let timer: number | undefined;
+	let onCallerAbort: (() => void) | null = null;
+	if (options.timeoutMs !== undefined && options.timeoutMs > 0) {
+		const controller = new AbortController();
+		timer = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), options.timeoutMs);
+		if (options.signal) {
+			if (options.signal.aborted) controller.abort(options.signal.reason);
+			else {
+				onCallerAbort = () => controller.abort(options.signal?.reason);
+				options.signal.addEventListener('abort', onCallerAbort, { once: true });
+			}
+		}
+		init.signal = controller.signal;
+	}
+
 	let response: Response;
 	try {
 		response = await fetch(url, init);
@@ -138,6 +163,11 @@ async function request<T>(path: string, query?: Record<string, QueryValue>, opti
 			detail: error instanceof Error ? error.message : String(error),
 			url
 		});
+	} finally {
+		clearTimeout(timer);
+		if (onCallerAbort !== null && options.signal) {
+			options.signal.removeEventListener('abort', onCallerAbort);
+		}
 	}
 
 	if (!response.ok) {
@@ -261,4 +291,34 @@ export function getProductSeries(productId: number, days = 30, signal?: AbortSig
 /** `GET /api/categories/{category}/series` */
 export function getCategorySeries(category: string, days = 30, signal?: AbortSignal): Promise<CategorySeriesResponse> {
 	return request<CategorySeriesResponse>(`/categories/${encodeURIComponent(category)}/series`, { days }, { signal });
+}
+
+/* ------------------------------------------------- Laya decision model */
+
+/**
+ * `GET /api/laya/health`
+ *
+ * Cheap: it probes `laya-serve`'s own `/health`, which does not run inference.
+ */
+export function getLayaHealth(signal?: AbortSignal): Promise<LayaHealthResponse> {
+	return request<LayaHealthResponse>('/laya/health', undefined, { signal });
+}
+
+/**
+ * `GET /api/decide/{productId}`
+ *
+ * Runs a full CPU forward pass, measured at 8 to 12 seconds on this host, so the
+ * default timeout is far above the client default and callers must show a pending
+ * state. Never aborts quickly: a slow answer is still an answer.
+ */
+export function getDecide(
+	productId: number,
+	options: { day?: string; timeoutMs?: number } = {},
+	signal?: AbortSignal
+): Promise<DecideResponse> {
+	return request<DecideResponse>(
+		`/decide/${productId}`,
+		{ day: options.day },
+		{ signal, timeoutMs: options.timeoutMs ?? 180_000 }
+	);
 }

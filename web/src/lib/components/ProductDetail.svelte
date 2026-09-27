@@ -2,6 +2,7 @@
 	import { getProductSeries, isApiError } from '$lib/api';
 	import { fmtCompact, fmtDay, fmtInt, fmtPct, fmtPrice, marginBand } from '$lib/format';
 	import Sparkline from './Sparkline.svelte';
+	import LayaVerdict from './LayaVerdict.svelte';
 	import type { ProductSeriesResponse } from '$lib/types';
 
 	interface Props {
@@ -211,6 +212,8 @@
 				</tbody>
 			</table>
 		{/if}
+
+		<LayaVerdict {productId} />
 	</div>
 </aside>
 

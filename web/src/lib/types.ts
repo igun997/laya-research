@@ -375,3 +375,108 @@ export interface TickActivity {
 	products: number;
 	stores: number;
 }
+
+/* -------------------------------------------------------- Laya decision model */
+
+/** One option's probability from a Laya distribution. */
+export type LayaProbabilities = Record<string, number>;
+
+/** A flattened typed answer from one Laya primitive (`choice`, `score`, `noul`). */
+export interface LayaAnswer {
+	/** The decided value: an option name, a rubric level, or P(true) for `noul`. */
+	answer: string | number | null;
+	/** Rubric index behind `answer` when the primitive was `score`. */
+	level_index: number | null;
+	/** Probability of the answer the model chose (`answer_confidence` upstream). */
+	confidence: number | null;
+	probabilities: LayaProbabilities | null;
+	/** Maps a rubric index to its level name, for `score`. */
+	legend: Record<string, string> | null;
+	/** Continuous position on the rubric, for `score`. */
+	score_position: number | null;
+}
+
+export interface LayaRouting {
+	model?: string;
+	repo?: string;
+	reason?: string;
+}
+
+export interface LayaResult {
+	available: boolean;
+	answers: Record<string, LayaAnswer>;
+	routing: LayaRouting | null;
+	latency_ms: number | null;
+	/** Present when `available` is false: why the model could not answer. */
+	detail?: string;
+}
+
+export interface RuleVerdict {
+	pattern: string;
+	severity: string;
+	severity_index: number;
+	reorder: boolean;
+	patterns: string[];
+	hits: Signal[];
+}
+
+export interface DecideStateView {
+	name: string;
+	category: string;
+	brand: string;
+	is_private_label: boolean;
+	is_perishable: boolean;
+	units: number;
+	units_baseline: number | null;
+	unit_lift: number | null;
+	avg_price: number;
+	price_baseline: number | null;
+	price_lift: number | null;
+	margin_pct: number;
+	margin_pct_baseline: number | null;
+	inventory: number;
+	inventory_cover_days: number | null;
+	store_count: number;
+	promo_stores: number;
+	observations: number;
+}
+
+export interface DecideAgreement {
+	pattern: boolean | null;
+	severity: boolean | null;
+	reorder: boolean | null;
+	laya: {
+		pattern: string | null;
+		severity: string | null;
+		severity_index: number | null;
+		reorder_probability: number | null;
+		reorder: boolean | null;
+	};
+	rules: {
+		pattern: string;
+		severity: string;
+		severity_index: number;
+		reorder: boolean;
+	};
+}
+
+export interface DecideResponse {
+	product_id: number;
+	day: string;
+	state: DecideStateView;
+	state_text: string;
+	laya: LayaResult;
+	rules: RuleVerdict;
+	agreement: DecideAgreement;
+}
+
+export interface LayaHealthResponse {
+	available: boolean;
+	enabled: boolean;
+	url: string;
+	timeout_seconds: number;
+	status_code?: number;
+	probe_ms?: number;
+	detail?: unknown;
+	checkpoint_options?: string[];
+}

@@ -27,6 +27,7 @@ graph LR
   subgraph app
     W["web · SvelteKit :3000"]
     A["api · FastAPI :8000"]
+    L["laya · laya-serve :8000"]
     S["sim · mutator"]
     G["generator · one-shot"]
   end
@@ -38,6 +39,7 @@ graph LR
   S -- UPDATE + pg_notify --> P
   A -- LISTEN laya_events --> P
   A -- SQL: search + rules --> P
+  A -- "POST /v1/systemone (Jev-compatible)" --> L
 ```
 
 | service | role | lifecycle |
@@ -45,6 +47,7 @@ graph LR
 | `db` | Postgres 17, schema applied from `db/init/01_schema.sql` | long-running, named volume |
 | `generator` | deterministic datasheet generator, `COPY` into `market_facts` | one-shot, exits 0 |
 | `api` | search, rule engine, signal persistence, WebSocket fan-out, single `LISTEN` connection | long-running |
+| `laya` | the Laya decision model behind `laya-serve`, reached only by `api` | long-running, no published port |
 | `sim` | mutates the newest day every few seconds, `pg_notify`s the changed keys, refreshes rollups | long-running |
 | `web` | SvelteKit dashboard, client-rendered | long-running |
 | `caddy` | single ingress: `/api/*` to `api`, everything else to `web`, WS upgrade passthrough | long-running |
@@ -112,6 +115,138 @@ reads the rollups, which the simulator refreshes concurrently every `LAYA_REFRES
 
 ---
 
+## The Laya decision model
+
+The repo runs **Laya** (Convai Innovations, Apache 2.0): a non-autoregressive System 1 decision
+model, 421M parameters on a ModernBERT-large backbone, that returns typed answers with probability
+distributions instead of generated text. `laya-serve` exposes `POST /v1/systemone`, which is the same
+request and response shape TypeSafe Jev serves, so the API talks to a decision model over HTTP and
+never imports torch. Swapping Laya for Jev is a base URL change.
+
+Each product-day becomes one state and three typed questions, all answered in a **single forward
+pass**:
+
+| question | primitive | options | rule-engine label it is scored against |
+|---|---|---|---|
+| `pattern` | `choice` | `none` + the 7 product-scope patterns | top-severity rule hit, else `none` |
+| `severity` | `score` | `none`, `info`, `warn`, `critical` | highest rule severity |
+| `reorder_now` | `noul` | P(true) | `STOCKOUT_RISK` at warn or critical |
+
+The two category-scope patterns are deliberately left out of the `choice` options: they can never be
+correct for a single product, and offering them would be an unfair question.
+
+```bash
+make laya-health          # is the model loaded, and which checkpoint
+make laya-questions       # the frozen question schema
+make decide PID=2177      # one product-day, decided by Laya and by the rules
+```
+
+`make decide` prints both verdicts side by side with Laya's full probability distribution, and marks
+each question `agree` or `differs`. The dashboard shows the same panel when you click a result row.
+
+### What it measured
+
+Labels come from the rule engine, and **both checkpoints were served the identical states in the
+same order**, so the columns are comparable.
+
+Laya vs the rule engine reports, 150 product-days each, stratified sampling (seed 13), day 2026-09-26.
+
+All reports were measured on the identical frozen dataset (`dataset_fingerprint` `4a85672eaca868e58785e85a7aa69368`). `sim` was stopped for the runs; the harness re-reads the fingerprint after each run and aborts if it moved, so the columns cannot have been scored on different data.
+
+| | `english` | `typed-decisions` | baseline |
+|---|---|---|---|
+
+**`choice` — which of 8 patterns applies**
+
+| accuracy | 0.113 **below** | 0.027 **below** | majority class |
+| macro F1 | 0.069 | 0.022 | — |
+| soft accuracy | 0.136 | 0.122 | — |
+| multiclass Brier | 0.872 | 0.897 | — (lower better) |
+| random guessing | 0.125 | 0.125 | 0.125 |
+
+**`score` — how severe, 4 ordinal levels**
+
+| accuracy | 0.173 **below** | 0.040 **below** | majority class |
+| macro F1 | 0.088 | 0.047 | — |
+| mean absolute error (levels) | 1.840 | 1.407 | — (lower better) |
+| soft accuracy | 0.000 | 0.000 | — |
+
+**`noul` — reorder now? (calibrated probability)**
+
+| Brier | 0.0484 **below** | 0.1390 **below** | all-zero |
+| Brier vs base rate | 0.0484 **below** | 0.1390 **below** | base rate |
+| log loss | 0.2389 | 0.4657 | — (lower better) |
+| AUC | 0.416 **below** | 0.669 **beats** | 0.5 = no discrimination |
+| ECE | 0.1801 | 0.3544 | — (lower better) |
+| mean probability | 0.193 | 0.368 | base rate 0.013 |
+
+**Latency, one call covering all three questions, CPU**
+
+| | `english` | `typed-decisions` |
+|---|---|---|
+| min ms | 4344 | 4463 |
+| p50 ms | 5515 | 5676 |
+| p95 ms | 7415 | 7641 |
+| max ms | 8514 | 8129 |
+
+**Agreement with the rule engine** (the labels' own source)
+
+| | `english` | `typed-decisions` |
+|---|---|---|
+| pattern | 0.113 | 0.027 |
+| severity | 0.173 | 0.040 |
+| reorder | 0.987 | 0.987 |
+
+**Sample composition**
+
+- `english`: {'pattern': {'DEMAND_SURGE': 34, 'MARGIN_SQUEEZE': 34, 'PRICE_SPIKE': 34, 'none': 34, 'DEMAND_COLLAPSE': 9, 'PRICE_CUT_UNANSWERED': 3, 'STOCKOUT_RISK': 2}, 'severity': {'critical': 64, 'warn': 52, 'none': 34}, 'reorder_true': 2}
+- `typed-decisions`: {'pattern': {'DEMAND_SURGE': 34, 'MARGIN_SQUEEZE': 34, 'PRICE_SPIKE': 34, 'none': 34, 'DEMAND_COLLAPSE': 9, 'PRICE_CUT_UNANSWERED': 3, 'STOCKOUT_RISK': 2}, 'severity': {'critical': 64, 'warn': 52, 'none': 34}, 'reorder_true': 2}
+
+The `reorder` row is the one that most invites a wrong reading: positives are rare (2 of 150), so a model that always answers *no* scores high on agreement while carrying no information. That is why the AUC and the Brier-versus-baseline rows are printed next to it.
+
+
+**How to read this.** Zero-shot, neither checkpoint can do this task. On the frozen dataset behind
+these numbers (fingerprint `4a85672e`):
+
+- **English scores below random guessing on the pattern question.** Accuracy 0.113 against a
+  0.125 chance rate for eight options and a 0.227 majority-class baseline. Typed-decisions scores
+  0.027, which is barely a tenth of the majority baseline. On severity it is 0.173 and 0.040 against
+  a 0.427 majority baseline. The majority baseline needs no model at all.
+- **One metric shows real signal, and it is worth stating plainly.** `typed-decisions` reaches
+  **AUC 0.669** on the reorder question, the only figure anywhere that beats its baseline. Base
+  English gets 0.416, *below* 0.5, meaning its confidence is anti-correlated with being right:
+  ranking by its own probability would sort the wrong way.
+- **It pays for that signal with calibration.** typed-decisions reports a mean probability of 0.368
+  against a true base rate of 0.0133, with ECE 0.354 against English's 0.180. Both are wildly
+  over-confident, which is what upstream documents. The reliability table shows it directly: 138 of
+  150 samples land in the 0.3–0.4 bucket, of which 1.4% were positive.
+- **The two checkpoints fail differently**, which is informative in itself: English collapses onto
+  `STOCKOUT_RISK` (91 of 150 predictions) and `DEMAND_SURGE` (45), while typed-decisions collapses
+  onto `PROMO_INEFFECTIVE` (131 of 150). Different strong class priors, matching upstream's own note
+  that Laya "tends to answer an easier neighbouring question or exhibit strong class priors".
+- **The `reorder` row is the trap.** Only 2 of 150 states are positive, so a model that always answers
+  *no* scores 0.987 on agreement while carrying no information. Its AUC and its Brier-versus-baseline
+  row are printed next to it for exactly that reason.
+
+**This is not a verdict on the model.** It is the zero-shot result on a domain its checkpoints were
+never tuned for, and it reproduces upstream's published finding closely: they report base checkpoints
+at 0.362 and 0.352 on their typed-decisions benchmark, *below* a 0.461 majority-class baseline, with
+"all of the capability on this benchmark comes from fine-tuning".
+
+The interesting experiment this repo enables is the next one: **fine-tune on the labels the rule
+engine already produces.** The datasheet is deterministic from one seed and the fingerprint proves a
+run was measured on frozen data, so the 951 labelled product-days regenerate exactly and give a
+reproducible training set with no human labelling. Upstream ships a notebook for the 2×T4 loop. Until
+that is run, the honest statement is narrower than "Laya versus my rules": a 421M general-purpose
+decision model does not reproduce a domain threshold expert off the shelf, and the vendor says so
+themselves.
+
+
+Laya is advisory throughout: `LAYA_ENABLED=0`, a missing container, or a timeout yields
+`{"available": false, "detail": ...}` and the dashboard keeps working.
+
+---
+
 ## API
 
 Full request/response shapes: [`docs/CONTRACT.md`](docs/CONTRACT.md) §5. Summary:
@@ -159,6 +294,13 @@ make psql        # interactive psql on the datasheet
 make gen-force   # regenerate the datasheet from LAYA_SEED
 make down        # stop, keep data
 make reset       # stop and destroy the volume
+
+make laya-health   # is the decision model loaded, and which checkpoint
+make laya-questions# the frozen question schema
+make decide PID=2177            # one product-day, decided twice, formatted
+make probe                      # measure Laya latency inside the model image
+make bench                      # benchmark Laya vs the rules (stops sim for the run)
+make bench-report               # reprint the newest benchmark report
 ```
 
 ### Verification
@@ -215,3 +357,24 @@ frames arrive and that a watched fact row actually changed while it was watching
   `LAYA_TICK_ROWS=250` that is a few dozen products; raising it an order of magnitude wants a
   queue and batching.
 - **`market_facts` is not partitioned.** 7M rows is comfortable; 100M+ wants `PARTITION BY RANGE (day)`.
+
+### Laya
+
+- **CPU inference is slow and there is no GPU here.** One forward pass covering all three questions
+  measured **6.3 s p50, 15.5 s max** on an i5-10310U (4 physical cores). The dashboard must show a
+  pending state, and `make bench` over 150 states takes about 18 minutes.
+- **`LAYA_MODELS` does not select the answering model, and `laya-serve` ignores `LAYA_MODEL`
+  entirely.** The preload list and the selector are different things. Checkpoint selection is a
+  **request-level `model` field**, which is what `LAYA_CHECKPOINT` (api) sets; `laya-serve` honours
+  the field only when it names a known checkpoint and otherwise falls back to the Router silently.
+  A benchmark labelled `typed-decisions` measured `english` twice before this was understood, which
+  is why `scripts/bench_laya.py` fires a canary request and refuses to score a run whose
+  `routing.model` is not the checkpoint it was asked for. See `docs/CONTRACT.md` §9.6.
+- **`answer_confidence` is the probability of the chosen answer**; the sibling `confidence` field is a
+  different, smaller quantity for `choice` and `score`. Calibrating on `confidence` would understate
+  confidence badly. See `docs/CONTRACT.md` §9.3.
+- **`sim` must be stopped during a benchmark.** It mutates the newest day every 4 seconds, so labels
+  scanned at the start would drift from states decided minutes later. `make bench` handles this.
+- **The benchmark labels come from the rule engine.** They are deterministic threshold rules, not
+  human judgements, so the result is agreement with a threshold expert, not correctness. The report
+  prints a trivial baseline beside every metric and that framing is not optional.
